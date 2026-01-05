@@ -10,6 +10,8 @@ pub enum Message {
     BrowseWavFile,
     FilePathChanged(String),
     SetFrequency,
+    FreqIncrement(u64),
+    FreqDecrement(u64),
     SpectrumData(Vec<u8>),
     Error(String),
 }

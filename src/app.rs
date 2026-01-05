@@ -1,7 +1,7 @@
-use iced::widget::{button, column, text, container, row, text_input, pick_list};
+use iced::widget::{button, column, text, container, row, pick_list};
 use iced::{Element, Length, Subscription};
 
-use crate::gui::{sdr_stream, wav_stream, Waterfall, Message};
+use crate::gui::{sdr_stream, wav_stream, freq_display, Waterfall, Message};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
 pub enum DemodMode {
@@ -147,6 +147,14 @@ impl SdrApp {
                     self.current_freq = (val * multiplier) as u64;
                 }
             }
+            Message::FreqIncrement(multiplier) => {
+                self.current_freq = self.current_freq.saturating_add(multiplier);
+                self.freq_input = (self.current_freq as f64 / 1_000_000.0).to_string();
+            }
+            Message::FreqDecrement(multiplier) => {
+                self.current_freq = self.current_freq.saturating_sub(multiplier);
+                self.freq_input = (self.current_freq as f64 / 1_000_000.0).to_string();
+            }
             Message::SpectrumData(data) => {
                 self.status = format!("Connected. Freq: {} Hz", self.current_freq);
                 self.waterfall.insert(0, data);
@@ -181,21 +189,11 @@ impl SdrApp {
         // Show frequency controls for SDR
         if self.source_type == SourceType::SDR {
             control_row = control_row.push(
-                text_input("Frequency", &self.freq_input)
-                    .on_input(Message::FreqInputChanged)
-                    .on_submit(Message::SetFrequency)
-                    .padding(10)
-                    .width(Length::Fixed(150.0))
-            );
-            control_row = control_row.push(
-                pick_list(
-                    &FreqUnit::ALL[..],
-                    Some(self.freq_unit),
-                    Message::FreqUnitChanged
+                freq_display::freq_display(
+                    self.current_freq,
+                    Message::FreqIncrement,
+                    Message::FreqDecrement
                 )
-            );
-            control_row = control_row.push(
-                button("Set Freq").on_press(Message::SetFrequency)
             );
         } else {
             // Show file browser for WAV file
