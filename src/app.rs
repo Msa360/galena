@@ -253,45 +253,11 @@ impl SdrApp {
     pub fn subscription(&self) -> Subscription<Message> {
         if self.is_connected {
             match self.source_type {
-                SourceType::SDR => sdr_stream_subscription(self.current_freq, self.demod_mode),
-                SourceType::WavFile => wav_stream_subscription(self.file_path.clone(), self.demod_mode),
+                SourceType::SDR => sdr_stream::subscription(self.current_freq, self.demod_mode),
+                SourceType::WavFile => wav_stream::subscription(self.file_path.clone(), self.demod_mode),
             }
         } else {
             Subscription::none()
         }
     }
-}
-
-fn sdr_stream_subscription(frequency: u64, demod_mode: DemodMode) -> Subscription<Message> {
-    use iced::futures::SinkExt;
-    
-    Subscription::run_with_id(
-        (frequency, demod_mode),
-        iced::stream::channel(100, move |mut output| async move {
-            let (tx, mut rx) = tokio::sync::mpsc::channel(100);
-            
-            sdr_stream::start_sdr_stream(frequency, demod_mode, tx);
-            
-            while let Some(msg) = rx.recv().await {
-                let _ = output.send(msg).await;
-            }
-        })
-    )
-}
-
-fn wav_stream_subscription(file_path: String, demod_mode: DemodMode) -> Subscription<Message> {
-    use iced::futures::SinkExt;
-    
-    Subscription::run_with_id(
-        (file_path.clone(), demod_mode),
-        iced::stream::channel(100, move |mut output| async move {
-            let (tx, mut rx) = tokio::sync::mpsc::channel(100);
-            
-            wav_stream::start_wav_stream(file_path, demod_mode, tx);
-            
-            while let Some(msg) = rx.recv().await {
-                let _ = output.send(msg).await;
-            }
-        })
-    )
 }

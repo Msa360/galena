@@ -5,6 +5,7 @@ use crate::app::DemodMode;
 use crate::gui::Message;
 use rodio::{OutputStreamBuilder, Sink, buffer::SamplesBuffer};
 use tokio::sync::mpsc;
+use iced::Subscription;
 
 const SAMPLE_RATE: u32 = 2_400_000;
 const AUDIO_RATE: u32 = 48_000;
@@ -12,8 +13,26 @@ const DECIMATION: usize = (SAMPLE_RATE / AUDIO_RATE) as usize;
 const BUFFER_SIZE: usize = 262144;
 const FFT_SIZE: usize = 16384;
 
+/// Create a subscription for SDR streaming
+pub fn subscription(frequency: u64, demod_mode: DemodMode) -> Subscription<Message> {
+    use iced::futures::SinkExt;
+    
+    Subscription::run_with_id(
+        (frequency, demod_mode),
+        iced::stream::channel(100, move |mut output| async move {
+            let (tx, mut rx) = tokio::sync::mpsc::channel(100);
+            
+            start_sdr_stream(frequency, demod_mode, tx);
+            
+            while let Some(msg) = rx.recv().await {
+                let _ = output.send(msg).await;
+            }
+        })
+    )
+}
+
 /// Start SDR streaming and audio playback
-pub fn start_sdr_stream(frequency: u64, demod_mode: DemodMode, tx: mpsc::Sender<Message>) {
+fn start_sdr_stream(frequency: u64, demod_mode: DemodMode, tx: mpsc::Sender<Message>) {
     std::thread::spawn(move || {
         if let Err(e) = run_sdr_loop(frequency, demod_mode, tx) {
             eprintln!("SDR thread error: {:?}", e);

@@ -6,12 +6,31 @@ use crate::gui::Message;
 use rodio::{OutputStreamBuilder, Sink, buffer::SamplesBuffer};
 use tokio::sync::mpsc;
 use std::path::Path;
+use iced::Subscription;
 
 const AUDIO_RATE: u32 = 48_000;
 const FFT_SIZE: usize = 16384;
 
+/// Create a subscription for WAV file streaming
+pub fn subscription(file_path: String, demod_mode: DemodMode) -> Subscription<Message> {
+    use iced::futures::SinkExt;
+    
+    Subscription::run_with_id(
+        (file_path.clone(), demod_mode),
+        iced::stream::channel(100, move |mut output| async move {
+            let (tx, mut rx) = tokio::sync::mpsc::channel(100);
+            
+            start_wav_stream(file_path, demod_mode, tx);
+            
+            while let Some(msg) = rx.recv().await {
+                let _ = output.send(msg).await;
+            }
+        })
+    )
+}
+
 /// Start WAV file streaming and audio playback
-pub fn start_wav_stream(file_path: String, demod_mode: DemodMode, tx: mpsc::Sender<Message>) {
+fn start_wav_stream(file_path: String, demod_mode: DemodMode, tx: mpsc::Sender<Message>) {
     std::thread::spawn(move || {
         if let Err(e) = run_wav_loop(&file_path, demod_mode, tx) {
             eprintln!("WAV thread error: {:?}", e);
