@@ -1359,6 +1359,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "galena"
+version = "0.1.0"
+dependencies = [
+ "env_logger",
+ "iced",
+ "log",
+ "num-complex",
+ "ringbuf",
+ "rodio",
+ "rtl-sdr-rs",
+ "rustfft",
+ "tokio",
+]
+
+[[package]]
 name = "generic-array"
 version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3322,21 +3337,6 @@ dependencies = [
  "memmap2",
  "smithay-client-toolkit 0.19.2",
  "tiny-skia",
-]
-
-[[package]]
-name = "sdr-scratch"
-version = "0.1.0"
-dependencies = [
- "env_logger",
- "iced",
- "log",
- "num-complex",
- "ringbuf",
- "rodio",
- "rtl-sdr-rs",
- "rustfft",
- "tokio",
 ]
 
 [[package]]

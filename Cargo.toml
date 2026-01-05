@@ -1,7 +1,11 @@
 [package]
-name = "sdr-scratch"
+name = "galena"
 version = "0.1.0"
 edition = "2024"
+
+[[bin]]
+name = "Galena"
+path = "src/main.rs"
 
 [dependencies]
 iced = { version = "0.13", features = ["canvas"] }

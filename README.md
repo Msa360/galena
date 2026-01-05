@@ -1,4 +1,4 @@
-# SDR Scratch
+# Galena SDR
 
 A simple GUI for RTL-SDR. Still under heavy development.
 
