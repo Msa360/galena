@@ -1,8 +1,8 @@
 use iced::widget::{button, column, text, container, row, text_input, pick_list};
-use iced::{Element, Length, Center, Subscription};
+use iced::{Element, Length, Subscription};
 
 use crate::dsp::{sdr_stream, wav_stream};
-use crate::gui::Waterfall;
+use crate::gui::{Waterfall, Message};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
 pub enum DemodMode {
@@ -90,20 +90,6 @@ pub struct SdrApp {
     waterfall: Vec<Vec<u8>>,
 }
 
-#[derive(Debug, Clone)]
-pub enum Message {
-    ConnectToggle,
-    FreqInputChanged(String),
-    FreqUnitChanged(FreqUnit),
-    DemodModeChanged(DemodMode),
-    SourceTypeChanged(SourceType),
-    BrowseWavFile,
-    FilePathChanged(String),
-    SetFrequency,
-    SpectrumData(Vec<u8>),
-    Error(String),
-}
-
 impl Default for SdrApp {
     fn default() -> Self {
         Self {
@@ -177,7 +163,8 @@ impl SdrApp {
     }
 
     pub fn view(&self) -> Element<Message> {
-        let source_controls = row![
+        // Top bar with source selector in the left
+        let source_selector = row![
             text("Source:").size(14),
             pick_list(
                 &SourceType::ALL[..],
@@ -186,32 +173,34 @@ impl SdrApp {
             ),
         ].spacing(10);
 
-        let mut controls = row![
-            source_controls,
-        ].spacing(20);
+        let top_bar = container(source_selector)
+            .padding(10);
+
+        // Control panel in the center
+        let mut control_row = row![].spacing(15);
 
         // Show frequency controls for SDR
         if self.source_type == SourceType::SDR {
-            controls = controls.push(
+            control_row = control_row.push(
                 text_input("Frequency", &self.freq_input)
                     .on_input(Message::FreqInputChanged)
                     .on_submit(Message::SetFrequency)
                     .padding(10)
                     .width(Length::Fixed(150.0))
             );
-            controls = controls.push(
+            control_row = control_row.push(
                 pick_list(
                     &FreqUnit::ALL[..],
                     Some(self.freq_unit),
                     Message::FreqUnitChanged
                 )
             );
-            controls = controls.push(
+            control_row = control_row.push(
                 button("Set Freq").on_press(Message::SetFrequency)
             );
         } else {
             // Show file browser for WAV file
-            controls = controls.push(
+            control_row = control_row.push(
                 button("Browse WAV File...").on_press(Message::BrowseWavFile)
             );
             if !self.file_path.is_empty() {
@@ -219,23 +208,27 @@ impl SdrApp {
                     .file_name()
                     .and_then(|n| n.to_str())
                     .unwrap_or(&self.file_path);
-                controls = controls.push(
+                control_row = control_row.push(
                     text(filename).size(12)
                 );
             }
         }
 
-        controls = controls.push(
+        control_row = control_row.push(
             pick_list(
                 &DemodMode::ALL[..],
                 Some(self.demod_mode),
                 Message::DemodModeChanged
             )
         );
-        controls = controls.push(
+        control_row = control_row.push(
             button(if self.is_connected { "Disconnect" } else { "Connect" })
                 .on_press(Message::ConnectToggle)
         );
+
+        let controls_panel = container(control_row)
+            .padding(10)
+            .center_x(Length::Fill);
 
         let title = match self.source_type {
             SourceType::SDR => "RTL-SDR Controller",
@@ -243,20 +236,18 @@ impl SdrApp {
         };
 
         let content = column![
+            top_bar,
             text(title).size(30),
             text(&self.status).size(16),
-            controls,
+            controls_panel,
             Waterfall::new(&self.waterfall)
         ]
-        .spacing(20)
-        .align_x(Center);
+        .spacing(10);
 
         container(content)
             .width(Length::Fill)
             .height(Length::Fill)
-            .padding(20)
-            .center_x(Length::Fill)
-            .center_y(Length::Fill)
+            .padding(10)
             .into()
     }
 

@@ -1,7 +1,8 @@
 /// SDR streaming and processing module
 
 use crate::dsp::{AmDemodulator, FmDemodulator, IirLowPassFilter, SpectrumProcessor, process_iq_to_complex};
-use crate::app::{Message, DemodMode};
+use crate::app::DemodMode;
+use crate::gui::Message;
 use rodio::{OutputStreamBuilder, Sink, buffer::SamplesBuffer};
 use tokio::sync::mpsc;
 
