@@ -1,8 +1,8 @@
-use iced::widget::{button, column, text, container, canvas, row, text_input, pick_list};
-use iced::{Element, Length, Center, Theme, Color, Point, Rectangle, Subscription, Size};
-use iced::mouse;
+use iced::widget::{button, column, text, container, row, text_input, pick_list};
+use iced::{Element, Length, Center, Subscription};
 
-use crate::dsp::sdr_stream;
+use crate::dsp::{sdr_stream, wav_stream};
+use crate::gui::Waterfall;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
 pub enum DemodMode {
@@ -23,6 +23,30 @@ impl std::fmt::Display for DemodMode {
             match self {
                 DemodMode::FM => "FM",
                 DemodMode::Raw => "Raw (AM)",
+            }
+        )
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
+pub enum SourceType {
+    #[default]
+    SDR,
+    WavFile,
+}
+
+impl SourceType {
+    pub const ALL: [SourceType; 2] = [SourceType::SDR, SourceType::WavFile];
+}
+
+impl std::fmt::Display for SourceType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                SourceType::SDR => "RTL-SDR",
+                SourceType::WavFile => "WAV File",
             }
         )
     }
@@ -59,6 +83,8 @@ pub struct SdrApp {
     freq_input: String,
     freq_unit: FreqUnit,
     demod_mode: DemodMode,
+    source_type: SourceType,
+    file_path: String,
     current_freq: u64,
     is_connected: bool,
     waterfall: Vec<Vec<u8>>,
@@ -70,6 +96,9 @@ pub enum Message {
     FreqInputChanged(String),
     FreqUnitChanged(FreqUnit),
     DemodModeChanged(DemodMode),
+    SourceTypeChanged(SourceType),
+    BrowseWavFile,
+    FilePathChanged(String),
     SetFrequency,
     SpectrumData(Vec<u8>),
     Error(String),
@@ -82,6 +111,8 @@ impl Default for SdrApp {
             freq_input: "100".to_string(),
             freq_unit: FreqUnit::MHz,
             demod_mode: DemodMode::FM,
+            source_type: SourceType::SDR,
+            file_path: String::new(),
             current_freq: 100_000_000,
             is_connected: false,
             waterfall: Vec::new(),
@@ -106,6 +137,20 @@ impl SdrApp {
             }
             Message::DemodModeChanged(mode) => {
                 self.demod_mode = mode;
+            }
+            Message::SourceTypeChanged(source) => {
+                self.source_type = source;
+            }
+            Message::BrowseWavFile => {
+                if let Some(path) = rfd::FileDialog::new()
+                    .add_filter("WAV files", &["wav"])
+                    .pick_file()
+                {
+                    self.file_path = path.display().to_string();
+                }
+            }
+            Message::FilePathChanged(path) => {
+                self.file_path = path;
             }
             Message::SetFrequency => {
                 if let Ok(val) = self.freq_input.parse::<f64>() {
@@ -132,34 +177,76 @@ impl SdrApp {
     }
 
     pub fn view(&self) -> Element<Message> {
-        let controls = row![
-            text_input("Frequency", &self.freq_input)
-                .on_input(Message::FreqInputChanged)
-                .on_submit(Message::SetFrequency)
-                .padding(10)
-                .width(Length::Fixed(150.0)),
+        let source_controls = row![
+            text("Source:").size(14),
             pick_list(
-                &FreqUnit::ALL[..],
-                Some(self.freq_unit),
-                Message::FreqUnitChanged
+                &SourceType::ALL[..],
+                Some(self.source_type),
+                Message::SourceTypeChanged
             ),
+        ].spacing(10);
+
+        let mut controls = row![
+            source_controls,
+        ].spacing(20);
+
+        // Show frequency controls for SDR
+        if self.source_type == SourceType::SDR {
+            controls = controls.push(
+                text_input("Frequency", &self.freq_input)
+                    .on_input(Message::FreqInputChanged)
+                    .on_submit(Message::SetFrequency)
+                    .padding(10)
+                    .width(Length::Fixed(150.0))
+            );
+            controls = controls.push(
+                pick_list(
+                    &FreqUnit::ALL[..],
+                    Some(self.freq_unit),
+                    Message::FreqUnitChanged
+                )
+            );
+            controls = controls.push(
+                button("Set Freq").on_press(Message::SetFrequency)
+            );
+        } else {
+            // Show file browser for WAV file
+            controls = controls.push(
+                button("Browse WAV File...").on_press(Message::BrowseWavFile)
+            );
+            if !self.file_path.is_empty() {
+                let filename = std::path::Path::new(&self.file_path)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or(&self.file_path);
+                controls = controls.push(
+                    text(filename).size(12)
+                );
+            }
+        }
+
+        controls = controls.push(
             pick_list(
                 &DemodMode::ALL[..],
                 Some(self.demod_mode),
                 Message::DemodModeChanged
-            ),
-            button("Set Freq").on_press(Message::SetFrequency),
+            )
+        );
+        controls = controls.push(
             button(if self.is_connected { "Disconnect" } else { "Connect" })
-                .on_press(Message::ConnectToggle),
-        ].spacing(10);
+                .on_press(Message::ConnectToggle)
+        );
+
+        let title = match self.source_type {
+            SourceType::SDR => "RTL-SDR Controller",
+            SourceType::WavFile => "WAV File Player",
+        };
 
         let content = column![
-            text("RTL-SDR Controller").size(30),
+            text(title).size(30),
             text(&self.status).size(16),
             controls,
-            canvas(SpectrumProgram { waterfall: &self.waterfall })
-                .width(Length::Fill)
-                .height(Length::Fill)
+            Waterfall::new(&self.waterfall)
         ]
         .spacing(20)
         .align_x(Center);
@@ -175,7 +262,10 @@ impl SdrApp {
 
     pub fn subscription(&self) -> Subscription<Message> {
         if self.is_connected {
-            sdr_stream(self.current_freq, self.demod_mode)
+            match self.source_type {
+                SourceType::SDR => sdr_stream(self.current_freq, self.demod_mode),
+                SourceType::WavFile => wav_stream(self.file_path.clone(), self.demod_mode),
+            }
         } else {
             Subscription::none()
         }
@@ -199,63 +289,19 @@ fn sdr_stream(frequency: u64, demod_mode: DemodMode) -> Subscription<Message> {
     )
 }
 
-struct SpectrumProgram<'a> {
-    waterfall: &'a Vec<Vec<u8>>,
-}
-
-impl<'a> canvas::Program<Message> for SpectrumProgram<'a> {
-    type State = ();
-
-    fn draw(
-        &self,
-        _state: &Self::State,
-        renderer: &iced::Renderer,
-        _theme: &Theme,
-        bounds: Rectangle,
-        _cursor: mouse::Cursor,
-    ) -> Vec<canvas::Geometry> {
-        let mut frame = canvas::Frame::new(renderer, bounds.size());
-
-        let background = canvas::Path::rectangle(Point::ORIGIN, bounds.size());
-        frame.fill(&background, Color::BLACK);
-
-        if let Some(latest) = self.waterfall.first() {
-             // Draw Spectrum Line
-             let width = bounds.width;
-             let height = bounds.height / 2.0;
-             let len = latest.len() as f32;
-             
-             let path = canvas::Path::new(|b| {
-                 b.move_to(Point::new(0.0, height));
-                 for (i, &val) in latest.iter().enumerate() {
-                     let x = (i as f32 / len) * width;
-                     let y = height - (val as f32 / 255.0) * height;
-                     b.line_to(Point::new(x, y));
-                 }
-                 b.line_to(Point::new(width, height));
-             });
-             
-             frame.stroke(&path, canvas::Stroke::default().with_color(Color::from_rgb(0.0, 1.0, 0.0)).with_width(1.0));
-        }
-
-        // Draw Waterfall (simplified)
-        let start_y = bounds.height / 2.0;
-        
-        for (row_idx, row_data) in self.waterfall.iter().enumerate() {
-            let y = start_y + row_idx as f32 * 2.0; // 2px per row
-            if y > bounds.height { break; }
+fn wav_stream(file_path: String, demod_mode: DemodMode) -> Subscription<Message> {
+    use iced::futures::SinkExt;
+    
+    Subscription::run_with_id(
+        (file_path.clone(), demod_mode),
+        iced::stream::channel(100, move |mut output| async move {
+            let (tx, mut rx) = tokio::sync::mpsc::channel(100);
             
-            let len = row_data.len();
-            let w_step = bounds.width / len as f32;
+            wav_stream::start_wav_stream(file_path, demod_mode, tx);
             
-            // Subsample x4 for speed
-            for (col_idx, &val) in row_data.iter().enumerate().step_by(4) { 
-                 let x = col_idx as f32 * w_step;
-                 let color = Color::from_rgb(val as f32 / 255.0, 0.0, 1.0 - (val as f32 / 255.0));
-                 frame.fill_rectangle(Point::new(x, y), Size::new(w_step * 4.0, 2.0), color);
+            while let Some(msg) = rx.recv().await {
+                let _ = output.send(msg).await;
             }
-        }
-
-        vec![frame.into_geometry()]
-    }
+        })
+    )
 }
