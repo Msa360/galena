@@ -4,6 +4,15 @@
 
 .DS_Store
 
+# Distribution artifacts
+*.dmg
+*.pkg
+*.app
+/dist/
+
+# Icon generation (keep .iconset for source, ignore generated .icns if regenerated)
+# /assets/*.icns
+
 .dir-locals.el
 .idea
 .vscode

@@ -2,10 +2,25 @@
 name = "galena"
 version = "0.1.0"
 edition = "2024"
+description = "A modern Software Defined Radio (SDR) application"
+authors = ["Arnaud Tremblay <arnaud25@icloud.com>"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Msa360/galena"
 
 [[bin]]
 name = "Galena"
 path = "src/main.rs"
+
+[package.metadata.bundle]
+name = "Galena"
+identifier = "com.galena.sdr"
+icon = ["assets/icon.ico", "assets/icon.png", "assets/icon.icns"]
+version = "0.1.0"
+resources = []
+copyright = "Copyright (c) 2026"
+category = "public.app-category.utilities"
+short_description = "Software Defined Radio Application"
+long_description = "A modern SDR application for receiving and demodulating radio signals using RTL-SDR hardware"
 
 [dependencies]
 iced = { version = "0.13", features = ["canvas"] }
