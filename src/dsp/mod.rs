@@ -4,9 +4,9 @@
 /// filters and demodulation functions.
 
 pub mod filters;
-pub mod demod;
+pub mod demodulation;
 mod spectrum;
 
-pub use demod::{AmDemodulator, FmDemodulator};
+pub use demodulation::{AmDemodulator, FmDemodulator};
 pub use filters::IirLowPassFilter;
 pub use spectrum::{SpectrumProcessor, process_iq_to_complex};
