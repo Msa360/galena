@@ -1,17 +1,19 @@
 use iced::widget::{button, column, text, container, row, pick_list};
 use iced::{Element, Length, Subscription};
 
-use crate::gui::{sdr_stream, wav_stream, freq_display, Waterfall, Message};
+use crate::gui::{stream, freq_display, Waterfall, Message};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
 pub enum DemodMode {
     #[default]
     FM,
     Raw,
+    USB,
+    LSB,
 }
 
 impl DemodMode {
-    pub const ALL: [DemodMode; 2] = [DemodMode::FM, DemodMode::Raw];
+    pub const ALL: [DemodMode; 4] = [DemodMode::FM, DemodMode::Raw, DemodMode::USB, DemodMode::LSB];
 }
 
 impl std::fmt::Display for DemodMode {
@@ -22,6 +24,8 @@ impl std::fmt::Display for DemodMode {
             match self {
                 DemodMode::FM => "FM",
                 DemodMode::Raw => "Raw (AM)",
+                DemodMode::USB => "USB",
+                DemodMode::LSB => "LSB",
             }
         )
     }
@@ -251,8 +255,8 @@ impl SdrApp {
     pub fn subscription(&self) -> Subscription<Message> {
         if self.is_connected {
             match self.source_type {
-                SourceType::SDR => sdr_stream::subscription(self.current_freq, self.demod_mode),
-                SourceType::WavFile => wav_stream::subscription(self.file_path.clone(), self.demod_mode),
+                SourceType::SDR => stream::sdr::subscription(self.current_freq, self.demod_mode),
+                SourceType::WavFile => stream::wav::subscription(self.file_path.clone(), self.demod_mode),
             }
         } else {
             Subscription::none()

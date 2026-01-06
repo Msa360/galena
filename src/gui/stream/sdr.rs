@@ -1,8 +1,9 @@
 /// SDR streaming and processing module
 
-use crate::dsp::{AmDemodulator, FmDemodulator, IirLowPassFilter, SpectrumProcessor, process_iq_to_complex};
+use crate::dsp::{Demodulator, IirLowPassFilter, SpectrumProcessor};
 use crate::app::DemodMode;
 use crate::gui::Message;
+use super::{create_demodulator, demodulate_and_filter};
 use rodio::{OutputStreamBuilder, Sink, buffer::SamplesBuffer};
 use tokio::sync::mpsc;
 use iced::Subscription;
@@ -55,8 +56,7 @@ fn run_sdr_loop(
 
     // Initialize DSP components
     let mut spectrum_processor = SpectrumProcessor::new();
-    let mut fm_demod = FmDemodulator::new(SAMPLE_RATE as f32).with_gain(0.8);
-    let am_demod = AmDemodulator::new(SAMPLE_RATE as f32);
+    let mut demodulator: Box<dyn Demodulator> = create_demodulator(demod_mode, SAMPLE_RATE as f32);
     let mut lowpass_filter = IirLowPassFilter::new(10_000.0, SAMPLE_RATE as f32);
 
     let mut buffer = vec![0u8; BUFFER_SIZE];
@@ -78,10 +78,9 @@ fn run_sdr_loop(
                 // Demodulate and create audio
                 let audio_samples = demodulate_and_filter(
                     &buffer,
-                    demod_mode,
-                    &mut fm_demod,
-                    &am_demod,
+                    demodulator.as_mut(),
                     &mut lowpass_filter,
+                    DECIMATION,
                 );
 
                 // Send audio to output
@@ -115,35 +114,4 @@ fn open_rtl_sdr(frequency: u64) -> Result<rtl_sdr_rs::RtlSdr, String> {
         .map_err(|e| format!("Failed to reset buffer: {:?}", e))?;
 
     Ok(device)
-}
-
-fn demodulate_and_filter(
-    buffer: &[u8],
-    demod_mode: DemodMode,
-    fm_demod: &mut FmDemodulator,
-    am_demod: &AmDemodulator,
-    lowpass_filter: &mut IirLowPassFilter,
-) -> Vec<f32> {
-    let mut audio_samples = Vec::with_capacity(buffer.len() / 2 / DECIMATION);
-
-    // Convert to complex samples
-    let complex_samples = process_iq_to_complex(buffer);
-
-    // Demodulate based on mode
-    let demod_output = match demod_mode {
-        DemodMode::FM => fm_demod.demodulate(&complex_samples),
-        DemodMode::Raw => am_demod.demodulate(&complex_samples),
-    };
-
-    // Apply low-pass filter and decimate
-    for (i, &sample) in demod_output.iter().enumerate() {
-        let filtered = lowpass_filter.process_sample(sample);
-        
-        // Decimate to audio rate
-        if i % DECIMATION == 0 {
-            audio_samples.push(filtered);
-        }
-    }
-
-    audio_samples
 }

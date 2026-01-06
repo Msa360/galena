@@ -7,6 +7,6 @@ pub mod filters;
 pub mod demodulation;
 mod spectrum;
 
-pub use demodulation::{AmDemodulator, FmDemodulator};
+pub use demodulation::{Demodulator, AmDemodulator, FmDemodulator, UsbDemodulator, LsbDemodulator};
 pub use filters::IirLowPassFilter;
 pub use spectrum::{SpectrumProcessor, process_iq_to_complex};

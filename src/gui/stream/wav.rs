@@ -1,8 +1,9 @@
 /// WAV file streaming and processing module
 
-use crate::dsp::{AmDemodulator, FmDemodulator, IirLowPassFilter, SpectrumProcessor, process_iq_to_complex};
+use crate::dsp::{Demodulator, IirLowPassFilter, SpectrumProcessor};
 use crate::app::DemodMode;
 use crate::gui::Message;
+use super::{create_demodulator, demodulate_and_filter};
 use rodio::{OutputStreamBuilder, Sink, buffer::SamplesBuffer};
 use tokio::sync::mpsc;
 use std::path::Path;
@@ -65,8 +66,7 @@ fn run_wav_loop(
 
     // Initialize DSP components
     let mut spectrum_processor = SpectrumProcessor::new();
-    let mut fm_demod = FmDemodulator::new(sample_rate as f32).with_gain(0.8);
-    let am_demod = AmDemodulator::new(sample_rate as f32);
+    let mut demodulator: Box<dyn Demodulator> = create_demodulator(demod_mode, sample_rate as f32);
     let mut lowpass_filter = IirLowPassFilter::new(10_000.0, sample_rate as f32);
     
     let decimation = (sample_rate / AUDIO_RATE) as usize;
@@ -112,9 +112,7 @@ fn run_wav_loop(
         // Demodulate and create audio
         let audio_samples = demodulate_and_filter(
             &buffer,
-            demod_mode,
-            &mut fm_demod,
-            &am_demod,
+            demodulator.as_mut(),
             &mut lowpass_filter,
             decimation,
         );
@@ -137,36 +135,4 @@ fn run_wav_loop(
     
     let _ = tx.blocking_send(Message::Error("WAV file playback ended".to_string()));
     Ok(())
-}
-
-fn demodulate_and_filter(
-    buffer: &[u8],
-    demod_mode: DemodMode,
-    fm_demod: &mut FmDemodulator,
-    am_demod: &AmDemodulator,
-    lowpass_filter: &mut IirLowPassFilter,
-    decimation: usize,
-) -> Vec<f32> {
-    let mut audio_samples = Vec::with_capacity(buffer.len() / 2 / decimation);
-
-    // Convert to complex samples
-    let complex_samples = process_iq_to_complex(buffer);
-
-    // Demodulate based on mode
-    let demod_output = match demod_mode {
-        DemodMode::FM => fm_demod.demodulate(&complex_samples),
-        DemodMode::Raw => am_demod.demodulate(&complex_samples),
-    };
-
-    // Apply low-pass filter and decimate
-    for (i, &sample) in demod_output.iter().enumerate() {
-        let filtered = lowpass_filter.process_sample(sample);
-        
-        // Decimate to audio rate
-        if i % decimation == 0 {
-            audio_samples.push(filtered);
-        }
-    }
-
-    audio_samples
 }
