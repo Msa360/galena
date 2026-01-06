@@ -13,27 +13,35 @@ const AUDIO_RATE: u32 = 48_000;
 const FFT_SIZE: usize = 16384;
 
 /// Create a subscription for WAV file streaming
-pub fn subscription(file_path: String, demod_mode: DemodMode) -> Subscription<Message> {
+pub fn subscription(file_path: String, demod_mode: DemodMode, start_position: usize, is_playing: bool) -> Subscription<Message> {
     use iced::futures::SinkExt;
     
     Subscription::run_with_id(
-        (file_path.clone(), demod_mode),
+        (file_path.clone(), demod_mode, is_playing),  // Include is_playing in ID
         iced::stream::channel(100, move |mut output| async move {
             let (tx, mut rx) = tokio::sync::mpsc::channel(100);
             
-            start_wav_stream(file_path, demod_mode, tx);
-            
-            while let Some(msg) = rx.recv().await {
-                let _ = output.send(msg).await;
+            // Only start the stream thread if we're playing
+            if is_playing {
+                start_wav_stream(file_path, demod_mode, start_position, tx);
+                
+                while let Some(msg) = rx.recv().await {
+                    let _ = output.send(msg).await;
+                }
             }
         })
     )
 }
 
 /// Start WAV file streaming and audio playback
-fn start_wav_stream(file_path: String, demod_mode: DemodMode, tx: mpsc::Sender<Message>) {
+fn start_wav_stream(
+    file_path: String,
+    demod_mode: DemodMode,
+    start_position: usize,
+    tx: mpsc::Sender<Message>
+) {
     std::thread::spawn(move || {
-        if let Err(e) = run_wav_loop(&file_path, demod_mode, tx) {
+        if let Err(e) = run_wav_loop(&file_path, demod_mode, start_position, tx) {
             eprintln!("WAV thread error: {:?}", e);
         }
     });
@@ -42,6 +50,7 @@ fn start_wav_stream(file_path: String, demod_mode: DemodMode, tx: mpsc::Sender<M
 fn run_wav_loop(
     file_path: &str,
     demod_mode: DemodMode,
+    start_position: usize,
     tx: mpsc::Sender<Message>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Open WAV file
@@ -77,6 +86,15 @@ fn run_wav_loop(
     let chunk_duration_secs = samples_per_chunk / sample_rate as f64;
     let chunk_duration = std::time::Duration::from_secs_f64(chunk_duration_secs);
 
+    // Skip to start position if resuming
+    let mut current_position = 0usize;
+    if start_position > 0 {
+        // Skip samples to reach the start position
+        let samples_to_skip = start_position;
+        for _ in reader.samples::<i16>().take(samples_to_skip) {}
+        current_position = start_position;
+    }
+
     loop {
         if tx.is_closed() {
             break;
@@ -93,6 +111,12 @@ fn run_wav_loop(
 
         if samples.is_empty() {
             // End of file - could loop or stop
+            break;
+        }
+
+        // Update position and send to app
+        current_position += samples.len();
+        if tx.blocking_send(Message::WavPosition(current_position)).is_err() {
             break;
         }
 
@@ -130,8 +154,8 @@ fn run_wav_loop(
         }
     }
 
-    // Wait for all buffered audio to finish playing before dropping the sink/stream
-    sink.sleep_until_end();
+    // Don't wait for audio to finish - let it keep playing in the global sink
+    // sink.sleep_until_end();
     
     let _ = tx.blocking_send(Message::Error("WAV file playback ended".to_string()));
     Ok(())

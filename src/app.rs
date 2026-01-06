@@ -1,7 +1,7 @@
-use iced::widget::{button, column, text, container, row, pick_list};
+use iced::widget::{button, column, text, container, row, pick_list, tooltip};
 use iced::{Element, Length, Subscription};
 
-use crate::gui::{stream, freq_display, Waterfall, Message};
+use crate::gui::{Message, stream, widgets::{Waterfall, freq_display}, components::{basic_tooltip}};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
 pub enum DemodMode {
@@ -23,7 +23,7 @@ impl std::fmt::Display for DemodMode {
             "{}",
             match self {
                 DemodMode::FM => "FM",
-                DemodMode::Raw => "Raw (AM)",
+                DemodMode::Raw => "AM",
                 DemodMode::USB => "USB",
                 DemodMode::LSB => "LSB",
             }
@@ -82,41 +82,67 @@ impl std::fmt::Display for FreqUnit {
 }
 
 pub struct SdrApp {
-    status: String,
     freq_input: String,
     freq_unit: FreqUnit,
     demod_mode: DemodMode,
     source_type: SourceType,
     file_path: String,
     current_freq: u64,
-    is_connected: bool,
+    is_playing: bool,
+    sdr_connected: bool,
     waterfall: Vec<Vec<u8>>,
+    wav_position: usize,
 }
 
 impl Default for SdrApp {
     fn default() -> Self {
         Self {
-            status: "Disconnected".to_string(),
             freq_input: "100".to_string(),
             freq_unit: FreqUnit::MHz,
             demod_mode: DemodMode::FM,
             source_type: SourceType::SDR,
             file_path: String::new(),
             current_freq: 100_000_000,
-            is_connected: false,
+            is_playing: false,
+            sdr_connected: false,
             waterfall: Vec::new(),
+            wav_position: 0,
         }
     }
 }
 
 impl SdrApp {
+    fn is_source_ready(&self) -> bool {
+        match self.source_type {
+            SourceType::SDR => self.sdr_connected,
+            SourceType::WavFile => !self.file_path.is_empty(),
+        }
+    }
+
+    fn get_source_ready_message(&self) -> Option<String> {
+        if self.is_source_ready() {
+            return None;
+        }
+        
+        Some(match self.source_type {
+            SourceType::SDR => "Please connect an RTL-SDR device to start playback".to_string(),
+            SourceType::WavFile => "Please select a WAV file to start playback".to_string(),
+        })
+    }
+
     pub fn update(&mut self, message: Message) {
         match message {
-            Message::ConnectToggle => {
-                self.is_connected = !self.is_connected;
-                if !self.is_connected {
-                    self.status = "Disconnected".to_string();
+            Message::PlayPause => {
+                self.is_playing = !self.is_playing;
+                if !self.is_playing {
+                    self.sdr_connected = false;
                 }
+            }
+            Message::PauseStream => {
+                // This message is sent from the stream when it receives pause signal
+            }
+            Message::ResumeStream => {
+                // This message is sent from the stream when it receives resume signal
             }
             Message::FreqInputChanged(val) => {
                 self.freq_input = val;
@@ -160,15 +186,21 @@ impl SdrApp {
                 self.freq_input = (self.current_freq as f64 / 1_000_000.0).to_string();
             }
             Message::SpectrumData(data) => {
-                self.status = format!("Connected. Freq: {} Hz", self.current_freq);
                 self.waterfall.insert(0, data);
                 if self.waterfall.len() > 100 {
                     self.waterfall.pop();
                 }
             }
-            Message::Error(e) => {
-                self.status = format!("Error: {}", e);
-                self.is_connected = false;
+            Message::WavPosition(pos) => {
+                self.wav_position = pos;
+            }
+            Message::SdrConnectionStatus(connected) => {
+                self.sdr_connected = connected;
+            }
+            Message::Error(_e) => {
+                self.sdr_connected = false;
+                self.is_playing = false;
+                self.wav_position = 0;
             }
         }
     }
@@ -193,7 +225,7 @@ impl SdrApp {
         // Show frequency controls for SDR
         if self.source_type == SourceType::SDR {
             control_row = control_row.push(
-                freq_display::freq_display(
+                freq_display::view(
                     self.current_freq,
                     Message::FreqIncrement,
                     Message::FreqDecrement
@@ -222,28 +254,50 @@ impl SdrApp {
                 Message::DemodModeChanged
             )
         );
-        control_row = control_row.push(
-            button(if self.is_connected { "Disconnect" } else { "Connect" })
-                .on_press(Message::ConnectToggle)
-        );
+        let play_button = button(if self.is_playing { "⏸ Pause" } else { "▶ Play" });
+        let play_button = if self.is_playing || self.is_source_ready() {
+            play_button.on_press(Message::PlayPause)
+        } else {
+            play_button
+        };
+        
+        // Wrap play button in tooltip if source is not ready
+        let play_button_element: Element<Message> = if let Some(message) = self.get_source_ready_message() {
+            basic_tooltip(
+                play_button,
+                message,
+                tooltip::Position::Top
+            )
+        } else {
+            play_button.into()
+        };
+        
+        control_row = control_row.push(play_button_element);
 
         let controls_panel = container(control_row)
             .padding(10)
             .center_x(Length::Fill);
 
-        let title = match self.source_type {
-            SourceType::SDR => "RTL-SDR Controller",
-            SourceType::WavFile => "WAV File Player",
-        };
+        let _title = "Galena";
 
-        let content = column![
-            top_bar,
-            text(title).size(30),
-            text(&self.status).size(16),
-            controls_panel,
-            Waterfall::new(&self.waterfall)
-        ]
-        .spacing(10);
+        // Connection status indicator (only for SDR mode)
+        let mut content_col = column![top_bar];
+        
+        if self.source_type == SourceType::SDR {
+            let indicator = if self.sdr_connected {
+                text("● RTL-SDR Connected")
+                    .style(|_theme| text::Style { color: Some(iced::Color::from_rgb(0.0, 0.8, 0.0)) })
+            } else {
+                text("● RTL-SDR Disconnected")
+                    .style(|_theme| text::Style { color: Some(iced::Color::from_rgb(0.8, 0.0, 0.0)) })
+            };
+            content_col = content_col.push(indicator.size(14));
+        }
+        
+        let content = content_col
+            .push(controls_panel)
+            .push(Waterfall::new(&self.waterfall))
+            .spacing(10);
 
         container(content)
             .width(Length::Fill)
@@ -253,13 +307,27 @@ impl SdrApp {
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
-        if self.is_connected {
+        let playing_subscription = if self.is_playing {
             match self.source_type {
                 SourceType::SDR => stream::sdr::subscription(self.current_freq, self.demod_mode),
-                SourceType::WavFile => stream::wav::subscription(self.file_path.clone(), self.demod_mode),
+                SourceType::WavFile => stream::wav::subscription(
+                    self.file_path.clone(),
+                    self.demod_mode,
+                    self.wav_position,
+                    self.is_playing
+                ),
             }
         } else {
             Subscription::none()
-        }
+        };
+
+        // When in SDR mode and not playing, check connection status
+        let connection_check = if self.source_type == SourceType::SDR && !self.is_playing {
+            stream::sdr::connection_check_subscription()
+        } else {
+            Subscription::none()
+        };
+
+        Subscription::batch(vec![playing_subscription, connection_check])
     }
 }

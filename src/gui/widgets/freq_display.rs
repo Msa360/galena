@@ -2,7 +2,7 @@ use iced::widget::{button, row, text, container, column};
 use iced::{Element, Alignment, Border};
 
 /// Create a frequency display with clickable digits
-pub fn freq_display<Message: Clone + 'static>(
+pub fn view<Message: Clone + 'static>(
     frequency: u64,
     on_increment: impl Fn(u64) -> Message + 'static,
     on_decrement: impl Fn(u64) -> Message + 'static,

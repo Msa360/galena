@@ -32,6 +32,26 @@ pub fn subscription(frequency: u64, demod_mode: DemodMode) -> Subscription<Messa
     )
 }
 
+/// Create a subscription to check RTL-SDR connection status without streaming
+pub fn connection_check_subscription() -> Subscription<Message> {
+    use iced::futures::SinkExt;
+    use std::time::Duration;
+    
+    Subscription::run_with_id(
+        "sdr_connection_check",
+        iced::stream::channel(1, move |mut output| async move {
+            // Check connection status every 2 seconds
+            loop {
+                let is_connected = rtl_sdr_rs::RtlSdr::open(rtl_sdr_rs::DeviceId::Index(0)).is_ok();
+                let _ = output.send(Message::SdrConnectionStatus(is_connected)).await;
+                
+                // Sleep using async-std or smol
+                std::thread::sleep(Duration::from_secs(2));
+            }
+        })
+    )
+}
+
 /// Start SDR streaming and audio playback
 fn start_sdr_stream(frequency: u64, demod_mode: DemodMode, tx: mpsc::Sender<Message>) {
     std::thread::spawn(move || {
@@ -52,7 +72,17 @@ fn run_sdr_loop(
     sink.play();
 
     // Initialize RTL-SDR device
-    let device = open_rtl_sdr(frequency)?;
+    let device = match open_rtl_sdr(frequency) {
+        Ok(dev) => {
+            let _ = tx.blocking_send(Message::SdrConnectionStatus(true));
+            dev
+        }
+        Err(e) => {
+            let _ = tx.blocking_send(Message::SdrConnectionStatus(false));
+            let _ = tx.blocking_send(Message::Error(e.clone()));
+            return Err(e.into());
+        }
+    };
 
     // Initialize DSP components
     let mut spectrum_processor = SpectrumProcessor::new();
@@ -88,6 +118,7 @@ fn run_sdr_loop(
                 sink.append(source);
             }
             Err(e) => {
+                let _ = tx.blocking_send(Message::SdrConnectionStatus(false));
                 let _ = tx.blocking_send(Message::Error(format!("Read error: {:?}", e)));
                 break;
             }
