@@ -31,61 +31,44 @@ impl std::fmt::Display for DemodMode {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
-pub enum SourceType {
-    #[default]
-    SDR,
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum Source {
+    SdrDevice { index: usize, name: String },
     WavFile,
 }
 
-impl SourceType {
-    pub const ALL: [SourceType; 2] = [SourceType::SDR, SourceType::WavFile];
-}
-
-impl std::fmt::Display for SourceType {
+impl std::fmt::Display for Source {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}",
-            match self {
-                SourceType::SDR => "RTL-SDR",
-                SourceType::WavFile => "WAV File",
-            }
-        )
+        match self {
+            Source::SdrDevice { name, .. } => write!(f, "{}", name),
+            Source::WavFile => write!(f, "WAV File"),
+        }
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum FreqUnit {
-    Hz,
-    #[default]
-    MHz,
-    GHz,
-}
-
-impl FreqUnit {
-    pub const ALL: [FreqUnit; 3] = [FreqUnit::Hz, FreqUnit::MHz, FreqUnit::GHz];
-}
-
-impl std::fmt::Display for FreqUnit {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}",
-            match self {
-                FreqUnit::Hz => "Hz",
-                FreqUnit::MHz => "MHz",
-                FreqUnit::GHz => "GHz",
-            }
-        )
+/// Enumerate all available RTL-SDR devices
+fn enumerate_sdr_devices() -> Vec<Source> {
+    let mut devices = Vec::new();
+    
+    // Try to enumerate devices (typically up to 32)
+    for index in 0..32 {
+        if let Ok(device) = rtl_sdr_rs::RtlSdr::open(rtl_sdr_rs::DeviceId::Index(index)) {
+            let name = format!("RTL-SDR #{}", index);
+            devices.push(Source::SdrDevice { index, name });
+            drop(device); // Close the device immediately
+        } else {
+            // No more devices found
+            break;
+        }
     }
+    
+    devices
 }
 
 pub struct SdrApp {
-    freq_input: String,
-    freq_unit: FreqUnit,
     demod_mode: DemodMode,
-    source_type: SourceType,
+    available_sources: Vec<Source>,
+    selected_source: Option<Source>,
     file_path: String,
     current_freq: u64,
     is_playing: bool,
@@ -96,11 +79,19 @@ pub struct SdrApp {
 
 impl Default for SdrApp {
     fn default() -> Self {
+        let sdr_devices = enumerate_sdr_devices();
+        
+        // Select first SDR device if available, otherwise None
+        let selected_source = sdr_devices.first().cloned();
+        
+        // Add WAV file option to available sources
+        let mut available_sources = sdr_devices;
+        available_sources.push(Source::WavFile);
+        
         Self {
-            freq_input: "100".to_string(),
-            freq_unit: FreqUnit::MHz,
             demod_mode: DemodMode::FM,
-            source_type: SourceType::SDR,
+            available_sources,
+            selected_source,
             file_path: String::new(),
             current_freq: 100_000_000,
             is_playing: false,
@@ -112,10 +103,15 @@ impl Default for SdrApp {
 }
 
 impl SdrApp {
+    fn has_sdr_devices(&self) -> bool {
+        self.available_sources.iter().any(|s| matches!(s, Source::SdrDevice { .. }))
+    }
+    
     fn is_source_ready(&self) -> bool {
-        match self.source_type {
-            SourceType::SDR => self.sdr_connected,
-            SourceType::WavFile => !self.file_path.is_empty(),
+        match &self.selected_source {
+            Some(Source::SdrDevice { .. }) => self.sdr_connected,
+            Some(Source::WavFile) => !self.file_path.is_empty(),
+            None => false,
         }
     }
 
@@ -124,9 +120,10 @@ impl SdrApp {
             return None;
         }
         
-        Some(match self.source_type {
-            SourceType::SDR => "Please connect an RTL-SDR device to start playback".to_string(),
-            SourceType::WavFile => "Please select a WAV file to start playback".to_string(),
+        Some(match &self.selected_source {
+            Some(Source::SdrDevice { .. }) => "Please connect an RTL-SDR device to start playback".to_string(),
+            Some(Source::WavFile) => "Please select a WAV file to start playback".to_string(),
+            None => "Please select a source".to_string(),
         })
     }
 
@@ -144,17 +141,11 @@ impl SdrApp {
             Message::ResumeStream => {
                 // This message is sent from the stream when it receives resume signal
             }
-            Message::FreqInputChanged(val) => {
-                self.freq_input = val;
-            }
-            Message::FreqUnitChanged(unit) => {
-                self.freq_unit = unit;
-            }
             Message::DemodModeChanged(mode) => {
                 self.demod_mode = mode;
             }
-            Message::SourceTypeChanged(source) => {
-                self.source_type = source;
+            Message::SourceChanged(source) => {
+                self.selected_source = Some(source);
             }
             Message::BrowseWavFile => {
                 if let Some(path) = rfd::FileDialog::new()
@@ -167,23 +158,11 @@ impl SdrApp {
             Message::FilePathChanged(path) => {
                 self.file_path = path;
             }
-            Message::SetFrequency => {
-                if let Ok(val) = self.freq_input.parse::<f64>() {
-                    let multiplier = match self.freq_unit {
-                        FreqUnit::Hz => 1.0,
-                        FreqUnit::MHz => 1_000_000.0,
-                        FreqUnit::GHz => 1_000_000_000.0,
-                    };
-                    self.current_freq = (val * multiplier) as u64;
-                }
-            }
             Message::FreqIncrement(multiplier) => {
                 self.current_freq = self.current_freq.saturating_add(multiplier);
-                self.freq_input = (self.current_freq as f64 / 1_000_000.0).to_string();
             }
             Message::FreqDecrement(multiplier) => {
                 self.current_freq = self.current_freq.saturating_sub(multiplier);
-                self.freq_input = (self.current_freq as f64 / 1_000_000.0).to_string();
             }
             Message::SpectrumData(data) => {
                 self.waterfall.insert(0, data);
@@ -210,9 +189,9 @@ impl SdrApp {
         let source_selector = row![
             text("Source:").size(14),
             pick_list(
-                &SourceType::ALL[..],
-                Some(self.source_type),
-                Message::SourceTypeChanged
+                &self.available_sources[..],
+                self.selected_source.clone(),
+                Message::SourceChanged
             ),
         ].spacing(10);
 
@@ -223,7 +202,7 @@ impl SdrApp {
         let mut control_row = row![].spacing(15);
 
         // Show frequency controls for SDR
-        if self.source_type == SourceType::SDR {
+        if matches!(self.selected_source, Some(Source::SdrDevice { .. })) {
             control_row = control_row.push(
                 freq_display::view(
                     self.current_freq,
@@ -231,7 +210,7 @@ impl SdrApp {
                     Message::FreqDecrement
                 )
             );
-        } else {
+        } else if matches!(self.selected_source, Some(Source::WavFile)) {
             // Show file browser for WAV file
             control_row = control_row.push(
                 button("Browse WAV File...").on_press(Message::BrowseWavFile)
@@ -283,7 +262,13 @@ impl SdrApp {
         // Connection status indicator (only for SDR mode)
         let mut content_col = column![top_bar];
         
-        if self.source_type == SourceType::SDR {
+        // Show message if no SDR devices detected
+        if !self.has_sdr_devices() {
+            let warning = text("⚠ No RTL-SDR devices detected. Please connect an RTL-SDR device.")
+                .style(|_theme| text::Style { color: Some(iced::Color::from_rgb(0.9, 0.6, 0.0)) })
+                .size(14);
+            content_col = content_col.push(warning);
+        } else if matches!(self.selected_source, Some(Source::SdrDevice { .. })) {
             let indicator = if self.sdr_connected {
                 text("● RTL-SDR Connected")
                     .style(|_theme| text::Style { color: Some(iced::Color::from_rgb(0.0, 0.8, 0.0)) })
@@ -308,22 +293,29 @@ impl SdrApp {
 
     pub fn subscription(&self) -> Subscription<Message> {
         let playing_subscription = if self.is_playing {
-            match self.source_type {
-                SourceType::SDR => stream::sdr::subscription(self.current_freq, self.demod_mode),
-                SourceType::WavFile => stream::wav::subscription(
+            match &self.selected_source {
+                Some(Source::SdrDevice { index, .. }) => {
+                    stream::sdr::subscription(self.current_freq, self.demod_mode, *index)
+                }
+                Some(Source::WavFile) => stream::wav::subscription(
                     self.file_path.clone(),
                     self.demod_mode,
                     self.wav_position,
                     self.is_playing
                 ),
+                None => Subscription::none(),
             }
         } else {
             Subscription::none()
         };
 
         // When in SDR mode and not playing, check connection status
-        let connection_check = if self.source_type == SourceType::SDR && !self.is_playing {
-            stream::sdr::connection_check_subscription()
+        let connection_check = if matches!(self.selected_source, Some(Source::SdrDevice { .. })) && !self.is_playing {
+            if let Some(Source::SdrDevice { index, .. }) = &self.selected_source {
+                stream::sdr::connection_check_subscription(*index)
+            } else {
+                Subscription::none()
+            }
         } else {
             Subscription::none()
         };

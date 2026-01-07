@@ -1,15 +1,12 @@
-use crate::app::{DemodMode, FreqUnit, SourceType};
+use crate::app::{DemodMode, Source};
 
 #[derive(Debug, Clone)]
 pub enum Message {
     PlayPause,
-    FreqInputChanged(String),
-    FreqUnitChanged(FreqUnit),
     DemodModeChanged(DemodMode),
-    SourceTypeChanged(SourceType),
+    SourceChanged(Source),
     BrowseWavFile,
     FilePathChanged(String),
-    SetFrequency,
     FreqIncrement(u64),
     FreqDecrement(u64),
     SpectrumData(Vec<u8>),

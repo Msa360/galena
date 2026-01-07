@@ -15,15 +15,15 @@ const BUFFER_SIZE: usize = 262144;
 const FFT_SIZE: usize = 16384;
 
 /// Create a subscription for SDR streaming
-pub fn subscription(frequency: u64, demod_mode: DemodMode) -> Subscription<Message> {
+pub fn subscription(frequency: u64, demod_mode: DemodMode, device_index: usize) -> Subscription<Message> {
     use iced::futures::SinkExt;
     
     Subscription::run_with_id(
-        (frequency, demod_mode),
+        (frequency, demod_mode, device_index),
         iced::stream::channel(100, move |mut output| async move {
             let (tx, mut rx) = tokio::sync::mpsc::channel(100);
             
-            start_sdr_stream(frequency, demod_mode, tx);
+            start_sdr_stream(frequency, demod_mode, device_index, tx);
             
             while let Some(msg) = rx.recv().await {
                 let _ = output.send(msg).await;
@@ -33,16 +33,16 @@ pub fn subscription(frequency: u64, demod_mode: DemodMode) -> Subscription<Messa
 }
 
 /// Create a subscription to check RTL-SDR connection status without streaming
-pub fn connection_check_subscription() -> Subscription<Message> {
+pub fn connection_check_subscription(device_index: usize) -> Subscription<Message> {
     use iced::futures::SinkExt;
     use std::time::Duration;
     
     Subscription::run_with_id(
-        "sdr_connection_check",
+        ("sdr_connection_check", device_index),
         iced::stream::channel(1, move |mut output| async move {
             // Check connection status every 2 seconds
             loop {
-                let is_connected = rtl_sdr_rs::RtlSdr::open(rtl_sdr_rs::DeviceId::Index(0)).is_ok();
+                let is_connected = rtl_sdr_rs::RtlSdr::open(rtl_sdr_rs::DeviceId::Index(device_index)).is_ok();
                 let _ = output.send(Message::SdrConnectionStatus(is_connected)).await;
                 
                 // Sleep using async-std or smol
@@ -53,9 +53,9 @@ pub fn connection_check_subscription() -> Subscription<Message> {
 }
 
 /// Start SDR streaming and audio playback
-fn start_sdr_stream(frequency: u64, demod_mode: DemodMode, tx: mpsc::Sender<Message>) {
+fn start_sdr_stream(frequency: u64, demod_mode: DemodMode, device_index: usize, tx: mpsc::Sender<Message>) {
     std::thread::spawn(move || {
-        if let Err(e) = run_sdr_loop(frequency, demod_mode, tx) {
+        if let Err(e) = run_sdr_loop(frequency, demod_mode, device_index, tx) {
             eprintln!("SDR thread error: {:?}", e);
         }
     });
@@ -64,6 +64,7 @@ fn start_sdr_stream(frequency: u64, demod_mode: DemodMode, tx: mpsc::Sender<Mess
 fn run_sdr_loop(
     frequency: u64,
     demod_mode: DemodMode,
+    device_index: usize,
     tx: mpsc::Sender<Message>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Initialize audio output
@@ -72,7 +73,7 @@ fn run_sdr_loop(
     sink.play();
 
     // Initialize RTL-SDR device
-    let device = match open_rtl_sdr(frequency) {
+    let device = match open_rtl_sdr(frequency, device_index) {
         Ok(dev) => {
             let _ = tx.blocking_send(Message::SdrConnectionStatus(true));
             dev
@@ -128,8 +129,8 @@ fn run_sdr_loop(
     Ok(())
 }
 
-fn open_rtl_sdr(frequency: u64) -> Result<rtl_sdr_rs::RtlSdr, String> {
-    let mut device = rtl_sdr_rs::RtlSdr::open(rtl_sdr_rs::DeviceId::Index(0))
+fn open_rtl_sdr(frequency: u64, device_index: usize) -> Result<rtl_sdr_rs::RtlSdr, String> {
+    let mut device = rtl_sdr_rs::RtlSdr::open(rtl_sdr_rs::DeviceId::Index(device_index))
         .map_err(|e| format!("Failed to open device: {:?}", e))?;
 
     device.set_center_freq(frequency as u32)
