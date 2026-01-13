@@ -11,6 +11,7 @@ use iced::Subscription;
 
 const AUDIO_RATE: u32 = 48_000;
 const FFT_SIZE: usize = 16384;
+const CHUNK_SIZE: usize = 262144;
 
 /// Create a subscription for WAV file streaming
 pub fn subscription(file_path: String, demod_mode: DemodMode, start_position: usize, is_playing: bool) -> Subscription<Message> {
@@ -79,10 +80,9 @@ fn run_wav_loop(
     let mut lowpass_filter = IirLowPassFilter::new(10_000.0, sample_rate as f32);
     
     let decimation = (sample_rate / AUDIO_RATE) as usize;
-    let chunk_size = 262144; // Process in chunks
     
     // Calculate the duration of each chunk for real-time pacing
-    let samples_per_chunk = (chunk_size / 2) as f64; // I/Q pairs
+    let samples_per_chunk = (CHUNK_SIZE / 2) as f64; // I/Q pairs
     let chunk_duration_secs = samples_per_chunk / sample_rate as f64;
     let chunk_duration = std::time::Duration::from_secs_f64(chunk_duration_secs);
 
@@ -105,7 +105,7 @@ fn run_wav_loop(
         // Read chunk of samples from WAV file
         let samples: Vec<i16> = reader
             .samples::<i16>()
-            .take(chunk_size)
+            .take(CHUNK_SIZE)
             .filter_map(|s| s.ok())
             .collect();
 
