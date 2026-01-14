@@ -1,5 +1,6 @@
 use iced::widget::{button, column, text, container, row, pick_list, tooltip};
 use iced::{Element, Length, Subscription};
+use cpal::traits::{DeviceTrait, HostTrait};
 
 use crate::gui::{Message, stream, widgets::{Waterfall, freq_display}, components::{basic_tooltip}};
 
@@ -40,10 +41,52 @@ pub enum Source {
 impl std::fmt::Display for Source {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Source::SdrDevice { name, .. } => write!(f, "{}", name),
+            Source::SdrDevice { name, .. } => write!(f, "{name}"),
             Source::WavFile => write!(f, "WAV File"),
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum AudioDevice {
+    Default,
+    Named {
+        id: String,    // Serialized DeviceId for stable identification
+        name: String,  // Human-readable name for UI display
+    }
+}
+
+impl std::fmt::Display for AudioDevice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AudioDevice::Default => write!(f, "Default Audio Device"),
+            AudioDevice::Named { name, .. } => write!(f, "{name}"),
+        }
+    }
+}
+
+/// Enumerate all available audio output devices
+fn enumerate_audio_devices() -> Vec<AudioDevice> {
+    let mut devices = vec![AudioDevice::Default];
+
+    let host = cpal::default_host();
+    match host.output_devices() {
+        Ok(output_devices) => {
+            for device in output_devices {
+                if let Ok(name) = device.name() {
+                    devices.push(AudioDevice::Named {
+                        id: name.clone(),  // Use device name as stable ID
+                        name,
+                    });
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("Failed to enumerate audio devices: {e:?}");
+        }
+    }
+
+    devices
 }
 
 /// Enumerate all available RTL-SDR devices
@@ -53,7 +96,7 @@ fn enumerate_sdr_devices() -> Vec<Source> {
     // Try to enumerate devices (typically up to 32)
     for index in 0..32 {
         if let Ok(device) = rtl_sdr_rs::RtlSdr::open(rtl_sdr_rs::DeviceId::Index(index)) {
-            let name = format!("RTL-SDR #{}", index);
+            let name = format!("RTL-SDR #{index}");
             devices.push(Source::SdrDevice { index, name });
             drop(device); // Close the device immediately
         } else {
@@ -69,6 +112,8 @@ pub struct SdrApp {
     demod_mode: DemodMode,
     available_sources: Vec<Source>,
     selected_source: Option<Source>,
+    available_audio_devices: Vec<AudioDevice>,
+    selected_audio_device: Option<AudioDevice>,
     file_path: String,
     current_freq: u64,
     is_playing: bool,
@@ -80,18 +125,24 @@ pub struct SdrApp {
 impl Default for SdrApp {
     fn default() -> Self {
         let sdr_devices = enumerate_sdr_devices();
-        
+
         // Select first SDR device if available, otherwise None
         let selected_source = sdr_devices.first().cloned();
-        
+
         // Add WAV file option to available sources
         let mut available_sources = sdr_devices;
         available_sources.push(Source::WavFile);
-        
+
+        // Enumerate audio output devices
+        let available_audio_devices = enumerate_audio_devices();
+        let selected_audio_device = Some(AudioDevice::Default);
+
         Self {
             demod_mode: DemodMode::FM,
             available_sources,
             selected_source,
+            available_audio_devices,
+            selected_audio_device,
             file_path: String::new(),
             current_freq: 100_000_000,
             is_playing: false,
@@ -176,6 +227,19 @@ impl SdrApp {
             Message::SdrConnectionStatus(connected) => {
                 self.sdr_connected = connected;
             }
+            Message::AudioDeviceChanged(device) => {
+                // Validate device still exists before selecting
+                if self.available_audio_devices.contains(&device) {
+                    self.selected_audio_device = Some(device);
+                } else {
+                    eprintln!("Attempted to select unavailable audio device");
+                    self.selected_audio_device = Some(AudioDevice::Default);
+                }
+            }
+            Message::AudioDeviceError(_e) => {
+                // Error message from stream when device becomes invalid
+                // Device reconstruction will handle fallback in the streaming thread
+            }
             Message::Error(_e) => {
                 self.sdr_connected = false;
                 self.is_playing = false;
@@ -185,7 +249,7 @@ impl SdrApp {
     }
 
     pub fn view(&self) -> Element<Message> {
-        // Top bar with source selector in the left
+        // Top bar with source and audio device selectors
         let source_selector = row![
             text("Source:").size(14),
             pick_list(
@@ -195,7 +259,19 @@ impl SdrApp {
             ),
         ].spacing(10);
 
-        let top_bar = container(source_selector)
+        // Audio output device selector
+        let audio_device_selector = row![
+            text("Output:").size(14),
+            pick_list(
+                &self.available_audio_devices[..],
+                self.selected_audio_device.clone(),
+                Message::AudioDeviceChanged
+            ),
+        ].spacing(10);
+
+        let top_bar = container(
+            row![source_selector, audio_device_selector].spacing(30)
+        )
             .padding(10);
 
         // Control panel in the center
@@ -295,13 +371,19 @@ impl SdrApp {
         let playing_subscription = if self.is_playing {
             match &self.selected_source {
                 Some(Source::SdrDevice { index, .. }) => {
-                    stream::sdr::subscription(self.current_freq, self.demod_mode, *index)
+                    stream::sdr::subscription(
+                        self.current_freq,
+                        self.demod_mode,
+                        *index,
+                        self.selected_audio_device.clone()
+                    )
                 }
                 Some(Source::WavFile) => stream::wav::subscription(
                     self.file_path.clone(),
                     self.demod_mode,
                     self.wav_position,
-                    self.is_playing
+                    self.is_playing,
+                    self.selected_audio_device.clone()
                 ),
                 None => Subscription::none(),
             }

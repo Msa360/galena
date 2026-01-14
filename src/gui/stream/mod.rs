@@ -6,6 +6,7 @@
 
 pub mod sdr;
 pub mod wav;
+pub mod audio_device;
 
 use crate::dsp::{Demodulator, AmDemodulator, FmDemodulator, UsbDemodulator, LsbDemodulator, IirLowPassFilter, process_iq_to_complex};
 use crate::app::DemodMode;

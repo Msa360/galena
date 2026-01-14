@@ -1,9 +1,9 @@
-/// SDR streaming and processing module
+//! SDR streaming and processing module
 
 use crate::dsp::{Demodulator, IirLowPassFilter, SpectrumProcessor};
-use crate::app::DemodMode;
+use crate::app::{DemodMode, AudioDevice};
 use crate::gui::Message;
-use super::{create_demodulator, demodulate_and_filter};
+use super::{create_demodulator, demodulate_and_filter, audio_device};
 use rodio::{OutputStreamBuilder, Sink, buffer::SamplesBuffer};
 use tokio::sync::mpsc;
 use iced::Subscription;
@@ -15,16 +15,21 @@ const BUFFER_SIZE: usize = 262144;
 const FFT_SIZE: usize = 16384;
 
 /// Create a subscription for SDR streaming
-pub fn subscription(frequency: u64, demod_mode: DemodMode, device_index: usize) -> Subscription<Message> {
+pub fn subscription(
+    frequency: u64,
+    demod_mode: DemodMode,
+    device_index: usize,
+    audio_device: Option<AudioDevice>,
+) -> Subscription<Message> {
     use iced::futures::SinkExt;
-    
+
     Subscription::run_with_id(
-        (frequency, demod_mode, device_index),
+        (frequency, demod_mode, device_index, audio_device.clone()),
         iced::stream::channel(100, move |mut output| async move {
             let (tx, mut rx) = tokio::sync::mpsc::channel(100);
-            
-            start_sdr_stream(frequency, demod_mode, device_index, tx);
-            
+
+            start_sdr_stream(frequency, demod_mode, device_index, audio_device, tx);
+
             while let Some(msg) = rx.recv().await {
                 let _ = output.send(msg).await;
             }
@@ -53,10 +58,16 @@ pub fn connection_check_subscription(device_index: usize) -> Subscription<Messag
 }
 
 /// Start SDR streaming and audio playback
-fn start_sdr_stream(frequency: u64, demod_mode: DemodMode, device_index: usize, tx: mpsc::Sender<Message>) {
+fn start_sdr_stream(
+    frequency: u64,
+    demod_mode: DemodMode,
+    device_index: usize,
+    audio_device: Option<AudioDevice>,
+    tx: mpsc::Sender<Message>,
+) {
     std::thread::spawn(move || {
-        if let Err(e) = run_sdr_loop(frequency, demod_mode, device_index, tx) {
-            eprintln!("SDR thread error: {:?}", e);
+        if let Err(e) = run_sdr_loop(frequency, demod_mode, device_index, audio_device, tx) {
+            eprintln!("SDR thread error: {e:?}");
         }
     });
 }
@@ -65,10 +76,18 @@ fn run_sdr_loop(
     frequency: u64,
     demod_mode: DemodMode,
     device_index: usize,
+    audio_device: Option<AudioDevice>,
     tx: mpsc::Sender<Message>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize audio output
-    let stream = OutputStreamBuilder::open_default_stream()?;
+    // Initialize audio output with selected device
+    let stream = if let Some(device) = audio_device.as_ref().and_then(audio_device::reconstruct_audio_device) {
+        OutputStreamBuilder::from_device(device)?
+            .open_stream_or_fallback()?
+    } else {
+        OutputStreamBuilder::from_default_device()?
+            .open_stream_or_fallback()?
+    };
+
     let sink = Sink::connect_new(stream.mixer());
     sink.play();
 
@@ -120,7 +139,7 @@ fn run_sdr_loop(
             }
             Err(e) => {
                 let _ = tx.blocking_send(Message::SdrConnectionStatus(false));
-                let _ = tx.blocking_send(Message::Error(format!("Read error: {:?}", e)));
+                let _ = tx.blocking_send(Message::Error(format!("Read error: {e:?}")));
                 break;
             }
         }
@@ -131,19 +150,19 @@ fn run_sdr_loop(
 
 fn open_rtl_sdr(frequency: u64, device_index: usize) -> Result<rtl_sdr_rs::RtlSdr, String> {
     let mut device = rtl_sdr_rs::RtlSdr::open(rtl_sdr_rs::DeviceId::Index(device_index))
-        .map_err(|e| format!("Failed to open device: {:?}", e))?;
+        .map_err(|e| format!("Failed to open device: {e:?}"))?;
 
     device.set_center_freq(frequency as u32)
-        .map_err(|e| format!("Failed to set frequency: {:?}", e))?;
-    
+        .map_err(|e| format!("Failed to set frequency: {e:?}"))?;
+
     device.set_tuner_gain(rtl_sdr_rs::TunerGain::Manual(300))
-        .map_err(|e| format!("Failed to set gain: {:?}", e))?;
-    
+        .map_err(|e| format!("Failed to set gain: {e:?}"))?;
+
     device.set_sample_rate(SAMPLE_RATE)
-        .map_err(|e| format!("Failed to set sample rate: {:?}", e))?;
-    
+        .map_err(|e| format!("Failed to set sample rate: {e:?}"))?;
+
     device.reset_buffer()
-        .map_err(|e| format!("Failed to reset buffer: {:?}", e))?;
+        .map_err(|e| format!("Failed to reset buffer: {e:?}"))?;
 
     Ok(device)
 }

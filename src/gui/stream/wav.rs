@@ -1,9 +1,9 @@
-/// WAV file streaming and processing module
+//! WAV file streaming and processing module
 
 use crate::dsp::{Demodulator, IirLowPassFilter, SpectrumProcessor};
-use crate::app::DemodMode;
+use crate::app::{DemodMode, AudioDevice};
 use crate::gui::Message;
-use super::{create_demodulator, demodulate_and_filter};
+use super::{create_demodulator, demodulate_and_filter, audio_device};
 use rodio::{OutputStreamBuilder, Sink, buffer::SamplesBuffer};
 use tokio::sync::mpsc;
 use std::path::Path;
@@ -14,18 +14,24 @@ const FFT_SIZE: usize = 16384;
 const CHUNK_SIZE: usize = 262144;
 
 /// Create a subscription for WAV file streaming
-pub fn subscription(file_path: String, demod_mode: DemodMode, start_position: usize, is_playing: bool) -> Subscription<Message> {
+pub fn subscription(
+    file_path: String,
+    demod_mode: DemodMode,
+    start_position: usize,
+    is_playing: bool,
+    audio_device: Option<AudioDevice>,
+) -> Subscription<Message> {
     use iced::futures::SinkExt;
-    
+
     Subscription::run_with_id(
-        (file_path.clone(), demod_mode, is_playing),  // Include is_playing in ID
+        (file_path.clone(), demod_mode, is_playing, audio_device.clone()),  // Include audio_device in ID
         iced::stream::channel(100, move |mut output| async move {
             let (tx, mut rx) = tokio::sync::mpsc::channel(100);
-            
+
             // Only start the stream thread if we're playing
             if is_playing {
-                start_wav_stream(file_path, demod_mode, start_position, tx);
-                
+                start_wav_stream(file_path, demod_mode, start_position, audio_device, tx);
+
                 while let Some(msg) = rx.recv().await {
                     let _ = output.send(msg).await;
                 }
@@ -39,11 +45,12 @@ fn start_wav_stream(
     file_path: String,
     demod_mode: DemodMode,
     start_position: usize,
-    tx: mpsc::Sender<Message>
+    audio_device: Option<AudioDevice>,
+    tx: mpsc::Sender<Message>,
 ) {
     std::thread::spawn(move || {
-        if let Err(e) = run_wav_loop(&file_path, demod_mode, start_position, tx) {
-            eprintln!("WAV thread error: {:?}", e);
+        if let Err(e) = run_wav_loop(&file_path, demod_mode, start_position, audio_device, tx) {
+            eprintln!("WAV thread error: {e:?}");
         }
     });
 }
@@ -52,25 +59,33 @@ fn run_wav_loop(
     file_path: &str,
     demod_mode: DemodMode,
     start_position: usize,
+    audio_device: Option<AudioDevice>,
     tx: mpsc::Sender<Message>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Open WAV file
     let mut reader = hound::WavReader::open(Path::new(file_path))
-        .map_err(|e| format!("Failed to open WAV file: {:?}", e))?;
-    
+        .map_err(|e| format!("Failed to open WAV file: {e:?}"))?;
+
     let spec = reader.spec();
     let sample_rate = spec.sample_rate;
-    
+
     // Validate WAV format (expecting I/Q data as interleaved samples)
     if spec.channels != 2 {
         return Err("WAV file must have 2 channels (I/Q data)".into());
     }
 
-    // Initialize audio output
-    let stream = OutputStreamBuilder::open_default_stream()?;
+    // Initialize audio output with selected device
+    let stream = if let Some(device) = audio_device.as_ref().and_then(audio_device::reconstruct_audio_device) {
+        OutputStreamBuilder::from_device(device)?
+            .open_stream_or_fallback()?
+    } else {
+        OutputStreamBuilder::from_default_device()?
+            .open_stream_or_fallback()?
+    };
+
     let sink = Sink::connect_new(stream.mixer());
     sink.play();
-    
+
     // Keep stream alive by holding onto it
     let _stream_handle = stream;
 

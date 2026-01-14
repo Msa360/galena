@@ -1,10 +1,11 @@
-use crate::app::{DemodMode, Source};
+use crate::app::{DemodMode, Source, AudioDevice};
 
 #[derive(Debug, Clone)]
 pub enum Message {
     PlayPause,
     DemodModeChanged(DemodMode),
     SourceChanged(Source),
+    AudioDeviceChanged(AudioDevice),
     BrowseWavFile,
     FilePathChanged(String),
     FreqIncrement(u64),
@@ -14,5 +15,6 @@ pub enum Message {
     PauseStream,
     ResumeStream,
     SdrConnectionStatus(bool),
+    AudioDeviceError(String),
     Error(String),
 }

@@ -1426,6 +1426,7 @@ dependencies = [
 name = "galena"
 version = "0.1.0"
 dependencies = [
+ "cpal",
  "env_logger",
  "hound",
  "iced",
