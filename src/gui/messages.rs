@@ -12,8 +12,6 @@ pub enum Message {
     FreqDecrement(u64),
     SpectrumData(Vec<u8>),
     WavPosition(usize),
-    PauseStream,
-    ResumeStream,
     SdrConnectionStatus(bool),
     AudioDeviceError(String),
     Error(String),

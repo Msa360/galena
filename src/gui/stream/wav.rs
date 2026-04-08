@@ -3,15 +3,12 @@
 use crate::dsp::{Demodulator, IirLowPassFilter, SpectrumProcessor};
 use crate::app::{DemodMode, AudioDevice};
 use crate::gui::Message;
+use crate::config::*;
 use super::{create_demodulator, demodulate_and_filter, audio_device};
 use rodio::{OutputStreamBuilder, Sink, buffer::SamplesBuffer};
 use tokio::sync::mpsc;
 use std::path::Path;
 use iced::Subscription;
-
-const AUDIO_RATE: u32 = 48_000;
-const FFT_SIZE: usize = 16384;
-const CHUNK_SIZE: usize = 262144;
 
 /// Create a subscription for WAV file streaming
 pub fn subscription(
@@ -50,7 +47,7 @@ fn start_wav_stream(
 ) {
     std::thread::spawn(move || {
         if let Err(e) = run_wav_loop(&file_path, demod_mode, start_position, audio_device, tx) {
-            eprintln!("WAV thread error: {e:?}");
+            log::error!("WAV thread error: {e:?}");
         }
     });
 }
@@ -92,12 +89,12 @@ fn run_wav_loop(
     // Initialize DSP components
     let mut spectrum_processor = SpectrumProcessor::new();
     let mut demodulator: Box<dyn Demodulator> = create_demodulator(demod_mode, sample_rate as f32);
-    let mut lowpass_filter = IirLowPassFilter::new(10_000.0, sample_rate as f32);
-    
+    let mut lowpass_filter = IirLowPassFilter::new(LOWPASS_CUTOFF_HZ, sample_rate as f32);
+
     let decimation = (sample_rate / AUDIO_RATE) as usize;
     
     // Calculate the duration of each chunk for real-time pacing
-    let samples_per_chunk = (CHUNK_SIZE / 2) as f64; // I/Q pairs
+    let samples_per_chunk = (WAV_CHUNK_SIZE / 2) as f64; // I/Q pairs
     let chunk_duration_secs = samples_per_chunk / sample_rate as f64;
     let chunk_duration = std::time::Duration::from_secs_f64(chunk_duration_secs);
 
@@ -120,7 +117,7 @@ fn run_wav_loop(
         // Read chunk of samples from WAV file
         let samples: Vec<i16> = reader
             .samples::<i16>()
-            .take(CHUNK_SIZE)
+            .take(WAV_CHUNK_SIZE)
             .filter_map(|s| s.ok())
             .collect();
 

@@ -2,6 +2,7 @@ use iced::widget::{button, column, text, container, row, pick_list, tooltip};
 use iced::{Element, Length, Subscription};
 use cpal::traits::{DeviceTrait, HostTrait};
 
+use crate::config::MAX_WATERFALL_LINES;
 use crate::gui::{Message, stream, widgets::{Waterfall, freq_display}, components::{basic_tooltip}};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
@@ -82,7 +83,7 @@ fn enumerate_audio_devices() -> Vec<AudioDevice> {
             }
         }
         Err(e) => {
-            eprintln!("Failed to enumerate audio devices: {e:?}");
+            log::error!("Failed to enumerate audio devices: {e:?}");
         }
     }
 
@@ -186,12 +187,6 @@ impl SdrApp {
                     self.sdr_connected = false;
                 }
             }
-            Message::PauseStream => {
-                // This message is sent from the stream when it receives pause signal
-            }
-            Message::ResumeStream => {
-                // This message is sent from the stream when it receives resume signal
-            }
             Message::DemodModeChanged(mode) => {
                 self.demod_mode = mode;
             }
@@ -217,7 +212,7 @@ impl SdrApp {
             }
             Message::SpectrumData(data) => {
                 self.waterfall.insert(0, data);
-                if self.waterfall.len() > 100 {
+                if self.waterfall.len() > MAX_WATERFALL_LINES {
                     self.waterfall.pop();
                 }
             }
@@ -232,15 +227,15 @@ impl SdrApp {
                 if self.available_audio_devices.contains(&device) {
                     self.selected_audio_device = Some(device);
                 } else {
-                    eprintln!("Attempted to select unavailable audio device");
+                    log::warn!("Attempted to select unavailable audio device");
                     self.selected_audio_device = Some(AudioDevice::Default);
                 }
             }
-            Message::AudioDeviceError(_e) => {
-                // Error message from stream when device becomes invalid
-                // Device reconstruction will handle fallback in the streaming thread
+            Message::AudioDeviceError(e) => {
+                log::error!("Audio device error: {}", e);
             }
-            Message::Error(_e) => {
+            Message::Error(e) => {
+                log::error!("Stream error: {}", e);
                 self.sdr_connected = false;
                 self.is_playing = false;
                 self.wav_position = 0;

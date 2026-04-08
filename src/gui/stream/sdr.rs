@@ -3,16 +3,11 @@
 use crate::dsp::{Demodulator, IirLowPassFilter, SpectrumProcessor};
 use crate::app::{DemodMode, AudioDevice};
 use crate::gui::Message;
+use crate::config::*;
 use super::{create_demodulator, demodulate_and_filter, audio_device};
 use rodio::{OutputStreamBuilder, Sink, buffer::SamplesBuffer};
 use tokio::sync::mpsc;
 use iced::Subscription;
-
-const SAMPLE_RATE: u32 = 2_400_000;
-const AUDIO_RATE: u32 = 48_000;
-const DECIMATION: usize = (SAMPLE_RATE / AUDIO_RATE) as usize;
-const BUFFER_SIZE: usize = 262144;
-const FFT_SIZE: usize = 16384;
 
 /// Create a subscription for SDR streaming
 pub fn subscription(
@@ -40,8 +35,7 @@ pub fn subscription(
 /// Create a subscription to check RTL-SDR connection status without streaming
 pub fn connection_check_subscription(device_index: usize) -> Subscription<Message> {
     use iced::futures::SinkExt;
-    use std::time::Duration;
-    
+
     Subscription::run_with_id(
         ("sdr_connection_check", device_index),
         iced::stream::channel(1, move |mut output| async move {
@@ -49,9 +43,8 @@ pub fn connection_check_subscription(device_index: usize) -> Subscription<Messag
             loop {
                 let is_connected = rtl_sdr_rs::RtlSdr::open(rtl_sdr_rs::DeviceId::Index(device_index)).is_ok();
                 let _ = output.send(Message::SdrConnectionStatus(is_connected)).await;
-                
-                // Sleep using async-std or smol
-                std::thread::sleep(Duration::from_secs(2));
+
+                tokio::time::sleep(tokio::time::Duration::from_secs(CONNECTION_CHECK_INTERVAL_SECS)).await;
             }
         })
     )
@@ -67,7 +60,7 @@ fn start_sdr_stream(
 ) {
     std::thread::spawn(move || {
         if let Err(e) = run_sdr_loop(frequency, demod_mode, device_index, audio_device, tx) {
-            eprintln!("SDR thread error: {e:?}");
+            log::error!("SDR thread error: {e:?}");
         }
     });
 }
@@ -106,10 +99,10 @@ fn run_sdr_loop(
 
     // Initialize DSP components
     let mut spectrum_processor = SpectrumProcessor::new();
-    let mut demodulator: Box<dyn Demodulator> = create_demodulator(demod_mode, SAMPLE_RATE as f32);
-    let mut lowpass_filter = IirLowPassFilter::new(10_000.0, SAMPLE_RATE as f32);
+    let mut demodulator: Box<dyn Demodulator> = create_demodulator(demod_mode, SDR_SAMPLE_RATE as f32);
+    let mut lowpass_filter = IirLowPassFilter::new(LOWPASS_CUTOFF_HZ, SDR_SAMPLE_RATE as f32);
 
-    let mut buffer = vec![0u8; BUFFER_SIZE];
+    let mut buffer = vec![0u8; SDR_BUFFER_SIZE];
 
     loop {
         if tx.is_closed() {
@@ -152,13 +145,16 @@ fn open_rtl_sdr(frequency: u64, device_index: usize) -> Result<rtl_sdr_rs::RtlSd
     let mut device = rtl_sdr_rs::RtlSdr::open(rtl_sdr_rs::DeviceId::Index(device_index))
         .map_err(|e| format!("Failed to open device: {e:?}"))?;
 
-    device.set_center_freq(frequency as u32)
+    let freq_u32 = u32::try_from(frequency)
+        .map_err(|_| format!("Frequency {frequency} Hz exceeds u32 maximum"))?;
+
+    device.set_center_freq(freq_u32)
         .map_err(|e| format!("Failed to set frequency: {e:?}"))?;
 
-    device.set_tuner_gain(rtl_sdr_rs::TunerGain::Manual(300))
+    device.set_tuner_gain(rtl_sdr_rs::TunerGain::Manual(RTL_TUNER_GAIN))
         .map_err(|e| format!("Failed to set gain: {e:?}"))?;
 
-    device.set_sample_rate(SAMPLE_RATE)
+    device.set_sample_rate(SDR_SAMPLE_RATE)
         .map_err(|e| format!("Failed to set sample rate: {e:?}"))?;
 
     device.reset_buffer()

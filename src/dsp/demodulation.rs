@@ -14,14 +14,11 @@ pub trait Demodulator {
 }
 
 /// Amplitude Modulation (AM) demodulator
-pub struct AmDemodulator {
-    #[allow(dead_code)]
-    sample_rate: f32,
-}
+pub struct AmDemodulator;
 
 impl AmDemodulator {
-    pub fn new(sample_rate: f32) -> Self {
-        Self { sample_rate }
+    pub fn new(_sample_rate: f32) -> Self {
+        Self
     }
 }
 
@@ -34,16 +31,13 @@ impl Demodulator for AmDemodulator {
 
 /// Frequency Modulation (FM) demodulator using phase discrimination
 pub struct FmDemodulator {
-    #[allow(dead_code)]
-    sample_rate: f32,
     prev_sample: Complex32,
     gain: f32,
 }
 
 impl FmDemodulator {
-    pub fn new(sample_rate: f32) -> Self {
+    pub fn new(_sample_rate: f32) -> Self {
         Self {
-            sample_rate,
             prev_sample: Complex32::new(0.0, 0.0),
             gain: 0.8,
         }
@@ -76,16 +70,13 @@ impl Demodulator for FmDemodulator {
 
 /// Phase Modulation (PM) demodulator
 pub struct PmDemodulator {
-    #[allow(dead_code)]
-    sample_rate: f32,
     prev_phase: f32,
     gain: f32,
 }
 
 impl PmDemodulator {
-    pub fn new(sample_rate: f32) -> Self {
+    pub fn new(_sample_rate: f32) -> Self {
         Self {
-            sample_rate,
             prev_phase: 0.0,
             gain: 1.0,
         }
@@ -127,15 +118,12 @@ impl Demodulator for PmDemodulator {
 
 /// Upper Sideband (USB) demodulator
 pub struct UsbDemodulator {
-    #[allow(dead_code)]
-    sample_rate: f32,
     gain: f32,
 }
 
 impl UsbDemodulator {
-    pub fn new(sample_rate: f32) -> Self {
+    pub fn new(_sample_rate: f32) -> Self {
         Self {
-            sample_rate,
             gain: 1.0,
         }
     }
@@ -156,15 +144,12 @@ impl Demodulator for UsbDemodulator {
 
 /// Lower Sideband (LSB) demodulator
 pub struct LsbDemodulator {
-    #[allow(dead_code)]
-    sample_rate: f32,
     gain: f32,
 }
 
 impl LsbDemodulator {
-    pub fn new(sample_rate: f32) -> Self {
+    pub fn new(_sample_rate: f32) -> Self {
         Self {
-            sample_rate,
             gain: 1.0,
         }
     }

@@ -10,14 +10,15 @@ pub mod audio_device;
 
 use crate::dsp::{Demodulator, AmDemodulator, FmDemodulator, UsbDemodulator, LsbDemodulator, IirLowPassFilter, process_iq_to_complex};
 use crate::app::DemodMode;
+use crate::config::{FM_DEMOD_GAIN, SIDEBAND_DEMOD_GAIN};
 
 /// Create the appropriate demodulator based on mode
 pub fn create_demodulator(demod_mode: DemodMode, sample_rate: f32) -> Box<dyn Demodulator> {
     match demod_mode {
-        DemodMode::FM => Box::new(FmDemodulator::new(sample_rate).with_gain(0.8)),
+        DemodMode::FM => Box::new(FmDemodulator::new(sample_rate).with_gain(FM_DEMOD_GAIN)),
         DemodMode::Raw => Box::new(AmDemodulator::new(sample_rate)),
-        DemodMode::USB => Box::new(UsbDemodulator::new(sample_rate).with_gain(2.0)),
-        DemodMode::LSB => Box::new(LsbDemodulator::new(sample_rate).with_gain(2.0)),
+        DemodMode::USB => Box::new(UsbDemodulator::new(sample_rate).with_gain(SIDEBAND_DEMOD_GAIN)),
+        DemodMode::LSB => Box::new(LsbDemodulator::new(sample_rate).with_gain(SIDEBAND_DEMOD_GAIN)),
     }
 }
 

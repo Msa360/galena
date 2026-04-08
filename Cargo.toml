@@ -1,7 +1,7 @@
 [package]
 name = "galena"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 description = "A modern Software Defined Radio (SDR) application"
 authors = ["Arnaud Tremblay <arnaud25@icloud.com>"]
 license = "MIT OR Apache-2.0"
@@ -29,7 +29,7 @@ num-complex = "0.4"
 rustfft = "6.4.1"
 log = "0.4.29"
 env_logger = "0.11.8"
-tokio = { version = "1.48.0", features = ["rt", "rt-multi-thread", "macros", "sync"] }
+tokio = { version = "1.48.0", features = ["rt", "rt-multi-thread", "macros", "sync", "time"] }
 rodio = "0.21.1"
 cpal = "0.16"
 ringbuf = "0.4.9"

@@ -38,49 +38,6 @@ impl IirLowPassFilter {
     }
 }
 
-/// Low-pass filter
-pub struct LowPassFilter {
-    #[allow(dead_code)]
-    cutoff_freq: f32,
-    #[allow(dead_code)]
-    sample_rate: f32,
-}
-
-impl LowPassFilter {
-    pub fn new(cutoff_freq: f32, sample_rate: f32) -> Self {
-        Self {
-            cutoff_freq,
-            sample_rate,
-        }
-    }
-
-    pub fn process(&self, samples: &[f32]) -> Vec<f32> {
-        // TODO: Implement low-pass filter
-        samples.to_vec()
-    }
-}
-
-/// High-pass filter
-pub struct HighPassFilter {
-    #[allow(dead_code)]
-    cutoff_freq: f32,
-    #[allow(dead_code)]
-    sample_rate: f32,
-}
-
-impl HighPassFilter {
-    pub fn new(cutoff_freq: f32, sample_rate: f32) -> Self {
-        Self {
-            cutoff_freq,
-            sample_rate,
-        }
-    }
-
-    pub fn process(&self, samples: &[f32]) -> Vec<f32> {
-        // TODO: Implement high-pass filter
-        samples.to_vec()
-    }
-}
 
 /// Band-pass filter
 pub struct BandPassFilter {
