@@ -1,5 +1,5 @@
 #[cfg(test)]
-mod tests {
+mod dsp_tests {
     use crate::dsp::filters::IirLowPassFilter;
     use crate::dsp::demodulation::{AmDemodulator, FmDemodulator, Demodulator};
     use rustfft::num_complex::Complex32;

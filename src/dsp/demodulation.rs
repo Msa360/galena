@@ -1,5 +1,4 @@
 /// Demodulation functions for various modulation schemes
-
 use rustfft::num_complex::Complex32;
 
 /// Common trait for all demodulators

@@ -7,7 +7,7 @@ pub fn view<Message: Clone + 'static>(
     on_increment: impl Fn(u64) -> Message + 'static,
     on_decrement: impl Fn(u64) -> Message + 'static,
 ) -> Element<'static, Message> {
-    let freq_str = format!("{:09}", frequency); // Ensure minimum 9 digits
+    let freq_str = format!("{frequency:09}"); // Ensure minimum 9 digits
     let num_digits = freq_str.len();
     
     let mut digits_row = row![].spacing(0).align_y(Alignment::Center);

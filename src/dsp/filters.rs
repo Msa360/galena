@@ -1,5 +1,4 @@
 /// Digital filters for signal processing
-
 /// Simple IIR Low-pass filter
 pub struct IirLowPassFilter {
     alpha: f32,

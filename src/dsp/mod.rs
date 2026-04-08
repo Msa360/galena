@@ -2,7 +2,6 @@
 ///
 /// This library provides digital signal processing capabilities including
 /// filters and demodulation functions.
-
 pub mod filters;
 pub mod demodulation;
 mod spectrum;

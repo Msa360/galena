@@ -232,10 +232,10 @@ impl SdrApp {
                 }
             }
             Message::AudioDeviceError(e) => {
-                log::error!("Audio device error: {}", e);
+                log::error!("Audio device error: {e}");
             }
             Message::Error(e) => {
-                log::error!("Stream error: {}", e);
+                log::error!("Stream error: {e}");
                 self.sdr_connected = false;
                 self.is_playing = false;
                 self.wav_position = 0;

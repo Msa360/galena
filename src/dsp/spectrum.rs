@@ -1,5 +1,4 @@
 /// Spectrum analysis and FFT processing
-
 use rustfft::{FftPlanner, num_complex::Complex32};
 
 /// Process IQ samples into complex numbers
@@ -48,7 +47,7 @@ impl SpectrumProcessor {
         let len = samples.len();
         for (i, val) in samples.iter_mut().enumerate() {
             let window = 0.5 * (1.0 - (2.0 * std::f32::consts::PI * i as f32 / (len as f32 - 1.0)).cos());
-            *val = *val * window;
+            *val *= window;
         }
     }
 
@@ -57,18 +56,17 @@ impl SpectrumProcessor {
         let len = fft_output.len();
         let half = len / 2;
         let mut output = vec![0u8; len];
-        
-        for i in 0..len {
-            let val = fft_output[i];
+
+        for (i, val) in fft_output.iter().enumerate() {
             let mag = val.norm();
             let db = 20.0 * mag.log10();
             let scaled = ((db + 40.0) * 4.0).clamp(0.0, 255.0) as u8;
-            
+
             // FFT shift: swap halves
             let target_idx = if i < half { i + half } else { i - half };
             output[target_idx] = scaled;
         }
-        
+
         output
     }
 }
