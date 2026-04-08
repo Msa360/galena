@@ -1,5 +1,6 @@
 use iced::widget::{button, row, text, container, column};
 use iced::{Element, Alignment, Border};
+use iced::widget::text as text_widget;
 
 /// Create a frequency display with clickable digits
 pub fn view<Message: Clone + 'static>(
@@ -49,7 +50,9 @@ pub fn view<Message: Clone + 'static>(
             .height(iced::Length::Fixed(12.0))
             .width(iced::Length::Fixed(16.0));
         
-        let digit_display = container(text(digit_char.to_string()).size(24))
+        let digit_display = container(text(digit_char.to_string()).size(24).style(|_theme| text_widget::Style {
+            color: Some(iced::Color::from_rgb(0.9, 0.9, 1.0)),
+        }))
             .center_x(iced::Length::Fixed(16.0))
             .center_y(iced::Length::Shrink);
         
@@ -92,25 +95,36 @@ pub fn view<Message: Clone + 'static>(
         
         let digit_container = container(digit_col)
             .style(|_theme| container::Style {
-                background: Some(iced::Background::Color(iced::Color::from_rgb(0.95, 0.95, 0.95))),
+                background: Some(iced::Background::Color(iced::Color::from_rgb(0.15, 0.15, 0.2))),
                 border: Border {
-                    color: iced::Color::from_rgb(0.7, 0.7, 0.7),
+                    color: iced::Color::from_rgb(0.3, 0.3, 0.4),
                     width: 1.0,
-                    radius: 3.0.into(),
+                    radius: 4.0.into(),
                 },
                 ..Default::default()
             })
             .padding(2);
         
         digits_row = digits_row.push(digit_container);
-        
-        // Add space separator every 3 digits from the right
+
+        // Add dot separator every 3 digits from the right
         if position > 0 && position % 3 == 0 {
-            digits_row = digits_row.push(container(text(" ")).width(iced::Length::Fixed(8.0)));
+            digits_row = digits_row.push(
+                container(text(" · ").size(20).style(|_theme| text_widget::Style {
+                    color: Some(iced::Color::from_rgb(0.5, 0.5, 0.6)),
+                }))
+                .width(iced::Length::Fixed(12.0))
+                .center_x(iced::Length::Fill)
+            );
         }
     }
     
-    digits_row = digits_row.push(container(text(" Hz").size(20)).padding(8));
+    digits_row = digits_row.push(
+        container(text(" Hz").size(18).style(|_theme| text_widget::Style {
+            color: Some(iced::Color::from_rgb(0.7, 0.7, 0.8)),
+        }))
+        .padding(8)
+    );
     
     container(digits_row)
         .padding(10)

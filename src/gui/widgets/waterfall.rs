@@ -51,22 +51,31 @@ impl<'a, Message> canvas::Program<Message> for WaterfallProgram<'a> {
         frame.fill(&background, Color::BLACK);
 
         if let Some(latest) = self.waterfall.first() {
-             // Draw Spectrum Line
-             let width = bounds.width;
-             let height = bounds.height / 2.0;
-             let len = latest.len() as f32;
-             
-             let path = canvas::Path::new(|b| {
-                 b.move_to(Point::new(0.0, height));
-                 for (i, &val) in latest.iter().enumerate() {
-                     let x = (i as f32 / len) * width;
-                     let y = height - (val as f32 / 255.0) * height;
-                     b.line_to(Point::new(x, y));
-                 }
-                 b.line_to(Point::new(width, height));
-             });
-             
-             frame.stroke(&path, canvas::Stroke::default().with_color(Color::from_rgb(0.0, 1.0, 0.0)).with_width(1.0));
+            // Draw Spectrum Line
+            let width = bounds.width;
+            let height = bounds.height / 2.0;
+            let len = latest.len() as f32;
+
+            let path = canvas::Path::new(|b| {
+                b.move_to(Point::new(0.0, height));
+                for (i, &val) in latest.iter().enumerate() {
+                    let x = (i as f32 / len) * width;
+                    let y = height - (val as f32 / 255.0) * height;
+                    b.line_to(Point::new(x, y));
+                }
+                b.line_to(Point::new(width, height));
+            });
+
+            frame.stroke(&path, canvas::Stroke::default().with_color(Color::from_rgb(0.0, 1.0, 0.0)).with_width(1.5));
+
+            // Draw separator line between spectrum and waterfall
+            let separator = canvas::Path::line(
+                Point::new(0.0, height),
+                Point::new(width, height),
+            );
+            frame.stroke(&separator, canvas::Stroke::default()
+                .with_color(Color::from_rgba(0.3, 0.3, 0.4, 0.3))
+                .with_width(1.0));
         }
 
         // Draw Waterfall (simplified)

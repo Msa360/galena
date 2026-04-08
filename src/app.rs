@@ -1,5 +1,5 @@
 use iced::widget::{button, column, text, container, row, pick_list, tooltip};
-use iced::{Element, Length, Subscription};
+use iced::{Element, Length, Subscription, Border};
 use cpal::traits::{DeviceTrait, HostTrait};
 
 use crate::config::MAX_WATERFALL_LINES;
@@ -244,37 +244,121 @@ impl SdrApp {
     }
 
     pub fn view(&self) -> Element<Message> {
-        // Top bar with source and audio device selectors
+        // Header bar with title and status
+        let title = text("GALENA").size(22).style(|_theme| text::Style {
+            color: Some(iced::Color::from_rgb(1.0, 1.0, 1.0)),
+        });
+
+        // Status badge (SDR connected/disconnected)
+        let status_badge = if matches!(self.selected_source, Some(Source::SdrDevice { .. })) {
+            if self.sdr_connected {
+                container(text("● Connected").size(12).style(|_theme| text::Style {
+                    color: Some(iced::Color::from_rgb(0.2, 0.95, 0.2)),
+                }))
+                .style(|_theme| container::Style {
+                    background: Some(iced::Background::Color(iced::Color::from_rgb(0.15, 0.35, 0.15))),
+                    border: Border {
+                        color: iced::Color::from_rgb(0.2, 0.95, 0.2),
+                        width: 1.0,
+                        radius: 12.0.into(),
+                    },
+                    ..Default::default()
+                })
+                .padding([4, 10])
+            } else {
+                container(text("● Disconnected").size(12).style(|_theme| text::Style {
+                    color: Some(iced::Color::from_rgb(0.95, 0.3, 0.3)),
+                }))
+                .style(|_theme| container::Style {
+                    background: Some(iced::Background::Color(iced::Color::from_rgb(0.35, 0.15, 0.15))),
+                    border: Border {
+                        color: iced::Color::from_rgb(0.95, 0.3, 0.3),
+                        width: 1.0,
+                        radius: 12.0.into(),
+                    },
+                    ..Default::default()
+                })
+                .padding([4, 10])
+            }
+        } else {
+            container(text(""))
+        };
+
+        // Source and output selectors
         let source_selector = row![
-            text("Source:").size(14),
+            text("Source:").size(12),
             pick_list(
                 &self.available_sources[..],
                 self.selected_source.clone(),
                 Message::SourceChanged
             ),
-        ].spacing(10);
+        ].spacing(8).align_y(iced::Alignment::Center);
 
-        // Audio output device selector
         let audio_device_selector = row![
-            text("Output:").size(14),
+            text("Output:").size(12),
             pick_list(
                 &self.available_audio_devices[..],
                 self.selected_audio_device.clone(),
                 Message::AudioDeviceChanged
             ),
-        ].spacing(10);
+        ].spacing(8).align_y(iced::Alignment::Center);
 
-        let top_bar = container(
-            row![source_selector, audio_device_selector].spacing(30)
-        )
-            .padding(10);
+        // Header layout: title + status | selectors
+        let header_content = row![
+            title.width(iced::Length::Fill),
+            status_badge,
+            source_selector,
+            audio_device_selector
+        ]
+        .spacing(15)
+        .align_y(iced::Alignment::Center);
 
-        // Control panel in the center
-        let mut control_row = row![].spacing(15);
+        let header = container(header_content)
+            .style(|_theme| container::Style {
+                background: Some(iced::Background::Color(iced::Color::from_rgb(0.1, 0.1, 0.12))),
+                border: Border {
+                    color: iced::Color::from_rgb(0.2, 0.2, 0.25),
+                    width: 1.0,
+                    radius: 0.0.into(),
+                },
+                ..Default::default()
+            })
+            .padding([10, 15])
+            .width(Length::Fill);
 
-        // Show frequency controls for SDR
+        // Warning banner if no SDR devices
+        let warning_banner = if !self.has_sdr_devices() {
+            container(
+                text("⚠ No RTL-SDR devices detected. Please connect an RTL-SDR device.")
+                    .style(|_theme| text::Style { color: Some(iced::Color::from_rgb(1.0, 0.7, 0.0)) })
+                    .size(12)
+            )
+            .style(|_theme| container::Style {
+                background: Some(iced::Background::Color(iced::Color::from_rgb(0.25, 0.2, 0.1))),
+                border: Border {
+                    color: iced::Color::from_rgb(0.6, 0.5, 0.2),
+                    width: 1.0,
+                    radius: 0.0.into(),
+                },
+                ..Default::default()
+            })
+            .padding(8)
+            .width(Length::Fill)
+        } else {
+            container(text("")).width(Length::Fill)
+        };
+
+        // Waterfall canvas (fills space)
+        let waterfall = container(Waterfall::new(&self.waterfall))
+            .width(Length::Fill)
+            .height(Length::Fill);
+
+        // Bottom control bar
+        let mut left_controls = row![].spacing(10);
+
+        // Frequency display (only for SDR)
         if matches!(self.selected_source, Some(Source::SdrDevice { .. })) {
-            control_row = control_row.push(
+            left_controls = left_controls.push(
                 freq_display::view(
                     self.current_freq,
                     Message::FreqIncrement,
@@ -282,83 +366,118 @@ impl SdrApp {
                 )
             );
         } else if matches!(self.selected_source, Some(Source::WavFile)) {
-            // Show file browser for WAV file
-            control_row = control_row.push(
-                button("Browse WAV File...").on_press(Message::BrowseWavFile)
-            );
+            // Browse button for WAV
+            let browse_btn = button("Browse WAV File...").on_press(Message::BrowseWavFile);
+            left_controls = left_controls.push(browse_btn);
             if !self.file_path.is_empty() {
                 let filename = std::path::Path::new(&self.file_path)
                     .file_name()
                     .and_then(|n| n.to_str())
                     .unwrap_or(&self.file_path);
-                control_row = control_row.push(
-                    text(filename).size(12)
+                left_controls = left_controls.push(
+                    text(filename).size(11).style(|_theme| text::Style {
+                        color: Some(iced::Color::from_rgb(0.7, 0.7, 0.8)),
+                    })
                 );
             }
         }
 
-        control_row = control_row.push(
-            pick_list(
-                &DemodMode::ALL[..],
-                Some(self.demod_mode),
-                Message::DemodModeChanged
-            )
+        // Right controls: demod mode + play button
+        let demod_list = pick_list(
+            &DemodMode::ALL[..],
+            Some(self.demod_mode),
+            Message::DemodModeChanged
         );
-        let play_button = button(if self.is_playing { "⏸ Pause" } else { "▶ Play" });
-        let play_button = if self.is_playing || self.is_source_ready() {
-            play_button.on_press(Message::PlayPause)
+
+        let play_button = if self.is_playing { "⏸ Pause" } else { "▶ Play" };
+        let play_btn = button(
+            text(play_button).style(|_theme| text::Style {
+                color: Some(iced::Color::from_rgb(1.0, 1.0, 1.0)),
+            })
+        );
+
+        let play_btn = if self.is_playing || self.is_source_ready() {
+            play_btn.on_press(Message::PlayPause).style(|_theme, status| {
+                match status {
+                    button::Status::Hovered | button::Status::Pressed => {
+                        button::Style {
+                            background: Some(iced::Background::Color(iced::Color::from_rgb(0.2, 0.7, 0.25))),
+                            text_color: iced::Color::from_rgb(1.0, 1.0, 1.0),
+                            border: Border {
+                                color: iced::Color::from_rgb(0.3, 0.95, 0.35),
+                                width: 1.0,
+                                radius: 4.0.into(),
+                            },
+                            ..Default::default()
+                        }
+                    }
+                    _ => {
+                        button::Style {
+                            background: Some(iced::Background::Color(iced::Color::from_rgb(0.15, 0.5, 0.2))),
+                            text_color: iced::Color::from_rgb(0.2, 0.95, 0.2),
+                            border: Border {
+                                color: iced::Color::from_rgb(0.2, 0.7, 0.25),
+                                width: 1.0,
+                                radius: 4.0.into(),
+                            },
+                            ..Default::default()
+                        }
+                    }
+                }
+            })
         } else {
-            play_button
+            play_btn.style(|_theme, _status| {
+                button::Style {
+                    background: Some(iced::Background::Color(iced::Color::from_rgb(0.2, 0.2, 0.22))),
+                    text_color: iced::Color::from_rgb(0.5, 0.5, 0.55),
+                    border: Border {
+                        color: iced::Color::from_rgb(0.3, 0.3, 0.35),
+                        width: 1.0,
+                        radius: 4.0.into(),
+                    },
+                    ..Default::default()
+                }
+            })
         };
-        
-        // Wrap play button in tooltip if source is not ready
+
         let play_button_element: Element<Message> = if let Some(message) = self.get_source_ready_message() {
-            basic_tooltip(
-                play_button,
-                message,
-                tooltip::Position::Top
-            )
+            basic_tooltip(play_btn, message, tooltip::Position::Top)
         } else {
-            play_button.into()
+            play_btn.into()
         };
-        
-        control_row = control_row.push(play_button_element);
 
-        let controls_panel = container(control_row)
-            .padding(10)
-            .center_x(Length::Fill);
+        let right_controls = row![demod_list, play_button_element].spacing(10);
 
-        let _title = "Galena";
+        let control_bar = container(
+            row![left_controls, row![].width(Length::Fill), right_controls]
+                .spacing(15)
+                .align_y(iced::Alignment::Center)
+        )
+        .style(|_theme| container::Style {
+            background: Some(iced::Background::Color(iced::Color::from_rgb(0.1, 0.1, 0.12))),
+            border: Border {
+                color: iced::Color::from_rgb(0.2, 0.2, 0.25),
+                width: 1.0,
+                radius: 0.0.into(),
+            },
+            ..Default::default()
+        })
+        .padding([10, 15])
+        .width(Length::Fill);
 
-        // Connection status indicator (only for SDR mode)
-        let mut content_col = column![top_bar];
-        
-        // Show message if no SDR devices detected
-        if !self.has_sdr_devices() {
-            let warning = text("⚠ No RTL-SDR devices detected. Please connect an RTL-SDR device.")
-                .style(|_theme| text::Style { color: Some(iced::Color::from_rgb(0.9, 0.6, 0.0)) })
-                .size(14);
-            content_col = content_col.push(warning);
-        } else if matches!(self.selected_source, Some(Source::SdrDevice { .. })) {
-            let indicator = if self.sdr_connected {
-                text("● RTL-SDR Connected")
-                    .style(|_theme| text::Style { color: Some(iced::Color::from_rgb(0.0, 0.8, 0.0)) })
-            } else {
-                text("● RTL-SDR Disconnected")
-                    .style(|_theme| text::Style { color: Some(iced::Color::from_rgb(0.8, 0.0, 0.0)) })
-            };
-            content_col = content_col.push(indicator.size(14));
-        }
-        
-        let content = content_col
-            .push(controls_panel)
-            .push(Waterfall::new(&self.waterfall))
-            .spacing(10);
+        // Main layout: header, warning, waterfall, control bar
+        let content = column![
+            header,
+            warning_banner,
+            waterfall,
+            control_bar
+        ]
+        .spacing(0);
 
         container(content)
             .width(Length::Fill)
             .height(Length::Fill)
-            .padding(10)
+            .padding(0)
             .into()
     }
 
